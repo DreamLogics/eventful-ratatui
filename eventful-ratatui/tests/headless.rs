@@ -139,6 +139,16 @@ mod feed {
             }
             Ok(())
         }
+
+        /// Emit `count` lines without waiting, then one tracked line, which
+        /// is delivered after the others.
+        #[asynced]
+        pub async fn flood(&self, count: usize) -> Result<(), DeliveryError> {
+            for i in 0..count {
+                self.events.line().emit(i.to_string());
+            }
+            self.events.line().tracked().emit("end".into()).await
+        }
     }
 }
 use feed::*;
@@ -148,7 +158,20 @@ declare_shard!(Ui, runtime = main);
 #[eventful(shard = Ui)]
 struct Log {
     lines: RefCell<Vec<String>>,
+    renders: Cell<u32>,
     ui: Invalidate,
+}
+
+impl Log {
+    fn bind() -> ShardRc<Self> {
+        Log::bind_local(Log {
+            lines: RefCell::default(),
+            renders: Cell::new(0),
+            ui: Invalidate::new(),
+            events: Default::default(),
+        })
+        .unwrap()
+    }
 }
 
 impl FeedEvents for Log {
@@ -160,6 +183,7 @@ impl FeedEvents for Log {
 
 impl Component for Log {
     fn render(&self, area: Rect, buf: &mut Buffer) {
+        self.renders.set(self.renders.get() + 1);
         self.lines.borrow().join(",").render(area, buf);
     }
 }
@@ -168,12 +192,7 @@ impl Component for Log {
 fn worker_events_redraw_main_shard_components() {
     let _serial = SERIAL.lock().unwrap();
     Ui::shard().run_main(|| async {
-        let log = Log::bind_local(Log {
-            lines: RefCell::default(),
-            ui: Invalidate::new(),
-            events: Default::default(),
-        })
-        .unwrap();
+        let log = Log::bind();
         let feed = Feed::new().await.unwrap();
         let _subscription = feed.line().connect(&log).scoped();
         let (tx, rx) = mpsc::unbounded::<io::Result<Event>>();
@@ -187,5 +206,70 @@ fn worker_events_redraw_main_shard_components() {
         terminal
             .backend()
             .assert_buffer_lines(["a,b         ", "            "]);
+    });
+}
+
+declare_shard!(FloodUi, runtime = main);
+
+#[eventful(shard = FloodUi)]
+struct Sink {
+    received: Cell<usize>,
+    renders: Cell<u32>,
+    ui: Invalidate,
+}
+
+impl FeedEvents for Sink {
+    fn line(&self, _: String) {
+        self.received.set(self.received.get() + 1);
+        self.ui.invalidate();
+    }
+}
+
+impl Component for Sink {
+    fn render(&self, area: Rect, buf: &mut Buffer) {
+        self.renders.set(self.renders.get() + 1);
+        self.received.get().to_string().render(area, buf);
+    }
+}
+
+#[test]
+fn a_flood_of_worker_events_is_coalesced_into_frames() {
+    const LINES: usize = 20_000;
+    const FPS: u32 = 30;
+    let _serial = SERIAL.lock().unwrap();
+    FloodUi::shard().run_main(|| async {
+        let sink = Sink::bind_local(Sink {
+            received: Cell::new(0),
+            renders: Cell::new(0),
+            ui: Invalidate::new(),
+            events: Default::default(),
+        })
+        .unwrap();
+        let feed = Feed::new().await.unwrap();
+        let _subscription = feed.line().connect(&sink).scoped();
+        let (tx, rx) = mpsc::unbounded::<io::Result<Event>>();
+        let mut terminal = terminal();
+        let started = std::time::Instant::now();
+        let script = async move {
+            feed.flood(LINES).await.unwrap();
+            drop(tx);
+        };
+        let tui = Tui::new()
+            .frame_rate(FPS)
+            .run_with(&mut terminal, rx, &sink);
+        let (result, ()) = futures::join!(tui, script);
+        result.unwrap();
+        let elapsed = started.elapsed();
+        assert_eq!(sink.received.get(), LINES + 1);
+        terminal
+            .backend()
+            .assert_buffer_lines(["20001       ", "            "]);
+        // One initial frame, at most one per interval, and the final one.
+        let bound = (elapsed.as_secs_f64() * f64::from(FPS)).ceil() as u32 + 2;
+        let renders = sink.renders.get();
+        assert!(
+            renders <= bound,
+            "{renders} frames for {LINES} events in {elapsed:?}"
+        );
     });
 }

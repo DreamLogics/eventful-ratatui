@@ -26,6 +26,7 @@ pub use crossterm;
 pub use error::{Error, Result};
 /// The eventful-rs version this crate is built against.
 pub use eventful_rs;
+pub use focus::{ComponentRef, FocusChain};
 pub use invalidate::Invalidate;
 pub use keymap::{KeyChord, Keymap};
 /// The ratatui version this crate draws with.
@@ -38,8 +39,13 @@ pub use terminal::TerminalGuard;
 /// crossterm's `Event` is exported as `InputEvent`, so the prelude can be
 /// glob-imported next to `eventful_rs::*`, which has an `Event` of its own.
 pub mod prelude {
-    pub use crate::{Component, Handled, Invalidate, KeyChord, Keymap, Quit, Tui, quit, run_tui};
-    pub use crossterm::event::{Event as InputEvent, KeyCode, KeyEvent, KeyModifiers};
+    pub use crate::{
+        Component, ComponentRef, FocusChain, Handled, Invalidate, KeyChord, Keymap, Quit, Tui,
+        quit, run_tui,
+    };
+    pub use crossterm::event::{
+        Event as InputEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
+    };
     pub use ratatui::prelude::*;
     pub use ratatui::widgets::*;
 }
