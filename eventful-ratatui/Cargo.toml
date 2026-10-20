@@ -1,0 +1,21 @@
+[package]
+name = "eventful-ratatui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+description = "Ratatui applications on eventful-rs: components, focus, key bindings and a redraw loop"
+keywords = ["tui", "ratatui", "events", "async", "terminal"]
+categories = ["command-line-interface", "asynchronous"]
+publish = false # Until eventful-rs ships the core fixes on crates.io.
+
+[dependencies]
+eventful-rs.workspace = true
+ratatui.workspace = true
+ratatui-core.workspace = true
+crossterm.workspace = true
+futures.workspace = true
+futures-timer.workspace = true

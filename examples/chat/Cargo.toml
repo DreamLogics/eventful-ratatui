@@ -1,0 +1,12 @@
+[package]
+name = "chat"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+eventful-rs = { workspace = true, features = ["tokio"] }
+eventful-ratatui.workspace = true
+ratatui.workspace = true
+futures.workspace = true
+tokio = { workspace = true, features = ["net", "io-util"] }
