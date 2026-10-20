@@ -10,7 +10,7 @@ repository.workspace = true
 description = "Ratatui applications on eventful-rs: components, focus, key bindings and a redraw loop"
 keywords = ["tui", "ratatui", "events", "async", "terminal"]
 categories = ["command-line-interface", "asynchronous"]
-publish = false # Until eventful-rs ships the core fixes on crates.io.
+publish = false # Until the 0.1 release.
 
 [dependencies]
 eventful-rs.workspace = true

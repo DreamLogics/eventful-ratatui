@@ -17,9 +17,9 @@ homepage = "https://github.com/DreamLogics/eventful-ratatui"
 repository = "https://github.com/DreamLogics/eventful-ratatui"
 
 [workspace.dependencies]
-# Path dependency while both crates are 0.x; switch to a crates.io version
-# once eventful-rs ships the core fixes this crate needs.
-eventful-rs = { version = "0.2.2", path = "../eventful-rs/eventful-rs" }
+# 0.2.2 is the first release with the panic reporter and the documented
+# `{Trait}Emissions` contract.
+eventful-rs = "0.2.2"
 eventful-ratatui = { path = "eventful-ratatui" }
 ratatui = "0.30"
 ratatui-core = "0.1"
