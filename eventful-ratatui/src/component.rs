@@ -27,3 +27,42 @@ pub trait Component {
         Handled::No
     }
 }
+
+impl<C: Component + ?Sized> Component for &C {
+    fn render(&self, area: Rect, buf: &mut Buffer) {
+        (**self).render(area, buf);
+    }
+    fn on_input(&self, event: &Event) -> Handled {
+        (**self).on_input(event)
+    }
+}
+
+impl<C: Component + ?Sized> Component for Box<C> {
+    fn render(&self, area: Rect, buf: &mut Buffer) {
+        (**self).render(area, buf);
+    }
+    fn on_input(&self, event: &Event) -> Handled {
+        (**self).on_input(event)
+    }
+}
+
+impl<C: Component + ?Sized> Component for std::rc::Rc<C> {
+    fn render(&self, area: Rect, buf: &mut Buffer) {
+        (**self).render(area, buf);
+    }
+    fn on_input(&self, event: &Event) -> Handled {
+        (**self).on_input(event)
+    }
+}
+
+impl<C> Component for eventful_rs::ShardRc<C>
+where
+    C: Component + eventful_rs::Eventful + eventful_rs::HasEvents<C::EventSetType>,
+{
+    fn render(&self, area: Rect, buf: &mut Buffer) {
+        (**self).render(area, buf);
+    }
+    fn on_input(&self, event: &Event) -> Handled {
+        (**self).on_input(event)
+    }
+}

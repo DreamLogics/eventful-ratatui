@@ -8,4 +8,4 @@ publish = false
 eventful-rs.workspace = true
 eventful-ratatui.workspace = true
 ratatui.workspace = true
-futures.workspace = true
+futures-timer.workspace = true
