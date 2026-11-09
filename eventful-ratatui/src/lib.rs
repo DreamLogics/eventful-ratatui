@@ -5,6 +5,15 @@
 //! workers to components, components request redraws, and one loop handles
 //! input and rendering.
 //!
+//! - [`components`]: ready-made buttons, inputs, lists, tables, trees, tabs,
+//!   dialogs, menus, toasts and more, reporting through eventful-rs events.
+//! - [`Component`]: the trait to write your own, rendered with ratatui.
+//! - [`focus`], [`mouse`] and [`overlay`]: keyboard focus with Tab order,
+//!   mouse routing, and layered popups, driven by the frame's render tree.
+//! - [`theme`]: semantic styles; the default follows the terminal's colors.
+//! - [`run_tui`] and [`Tui`]: the loop; [`testing::Harness`] drives
+//!   components without a terminal.
+//!
 //! Applications depend on both `eventful-rs` and `eventful-ratatui`: the
 //! eventful-rs macros resolve the runtime through the application's own
 //! `eventful-rs` dependency. Both must resolve to the same semver-compatible
