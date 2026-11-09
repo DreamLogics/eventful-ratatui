@@ -1,0 +1,17 @@
+error: key events take no arguments
+ --> tests/ui/signature.rs:6:29
+  |
+6 |     fn with_argument(&self, count: u32);
+  |                             ^^^^^^^^^^
+
+error: key events return nothing
+ --> tests/ui/signature.rs:8:27
+  |
+8 |     fn with_return(&self) -> bool;
+  |                           ^^^^^^^
+
+error: key events take `&self`
+  --> tests/ui/signature.rs:10:5
+   |
+10 |     fn without_receiver();
+   |     ^^^^^^^^^^^^^^^^^^^^^

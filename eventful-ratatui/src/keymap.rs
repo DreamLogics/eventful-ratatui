@@ -1,6 +1,6 @@
 //! [`Keymap`]: a builder mapping key chords (`"j"`, `"ctrl+s"`) to closures
-//! over a receiver, plus the [`KeyChord`] parser. The `#[key_events]` macro in
-//! `eventful-ratatui-macros` will build on the same parser.
+//! over a receiver, plus the [`KeyChord`] parser. [`key_events`](crate::key_events)
+//! checks chords at compile time with the same syntax.
 use crate::Handled;
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use std::{fmt, str::FromStr};
@@ -38,6 +38,10 @@ impl KeyChord {
             KeyCode::BackTab => (KeyCode::BackTab, modifiers - KeyModifiers::SHIFT),
             code => (code, modifiers),
         };
+        Self { code, modifiers }
+    }
+    /// A chord whose parts are already normalized, for generated code.
+    pub(crate) const fn from_normalized(code: KeyCode, modifiers: KeyModifiers) -> Self {
         Self { code, modifiers }
     }
     /// The chord a key event represents.
@@ -164,6 +168,14 @@ impl fmt::Display for ParseKeyChordError {
 
 impl std::error::Error for ParseKeyChordError {}
 
+/// The chord of a key press or repeat; `None` for releases and other input.
+pub(crate) fn pressed(event: &Event) -> Option<KeyChord> {
+    match event {
+        Event::Key(key) if key.kind != KeyEventKind::Release => Some(KeyChord::from_event(key)),
+        _ => None,
+    }
+}
+
 /// An action bound to a chord.
 type Action<T> = Box<dyn Fn(&T)>;
 
@@ -224,13 +236,9 @@ impl<T: ?Sized> Keymap<T> {
     /// Run the action bound to a key press or repeat in `event`, if any.
     /// Key releases and other events are not handled.
     pub fn dispatch(&self, receiver: &T, event: &Event) -> Handled {
-        let Event::Key(key) = event else {
+        let Some(chord) = pressed(event) else {
             return Handled::No;
         };
-        if key.kind == KeyEventKind::Release {
-            return Handled::No;
-        }
-        let chord = KeyChord::from_event(key);
         let Some((_, action)) = self.bindings.iter().find(|(bound, _)| *bound == chord) else {
             return Handled::No;
         };

@@ -1,0 +1,5 @@
+error: `shift+j` is already bound to `next`
+ --> tests/ui/duplicate_chord.rs:7:11
+  |
+7 |     #[key("shift+j")]
+  |           ^^^^^^^^^

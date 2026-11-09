@@ -1,0 +1,5 @@
+error: key events do not support #[cfg]; put the whole trait behind it
+ --> tests/ui/cfg_on_event.rs:5:5
+  |
+5 |     #[cfg(unix)]
+  |     ^^^^^^^^^^^^

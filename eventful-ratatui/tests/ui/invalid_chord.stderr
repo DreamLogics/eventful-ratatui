@@ -1,0 +1,11 @@
+error: invalid key chord `ctrl+banana`: unknown key
+ --> tests/ui/invalid_chord.rs:5:16
+  |
+5 |     #[key("j", "ctrl+banana")]
+  |                ^^^^^^^^^^^^^
+
+error: invalid key chord `hyperspace+x`: unknown modifier
+ --> tests/ui/invalid_chord.rs:7:11
+  |
+7 |     #[key("hyperspace+x")]
+  |           ^^^^^^^^^^^^^^

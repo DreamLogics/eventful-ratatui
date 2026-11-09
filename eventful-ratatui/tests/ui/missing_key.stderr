@@ -1,0 +1,11 @@
+error: key event without a chord; add #[key("...")]
+ --> tests/ui/missing_key.rs:7:8
+  |
+7 |     fn unbound(&self);
+  |        ^^^^^^^
+
+error: #[key] needs at least one chord, like #[key("j")]
+ --> tests/ui/missing_key.rs:8:5
+  |
+8 |     #[key()]
+  |     ^^^^^^^^

@@ -21,6 +21,7 @@ repository = "https://github.com/DreamLogics/eventful-ratatui"
 # `{Trait}Emissions` contract.
 eventful-rs = "0.2.2"
 eventful-ratatui = { path = "eventful-ratatui" }
+eventful-ratatui-macros = { path = "eventful-ratatui-macros", version = "0.0.1" }
 ratatui = "0.30"
 ratatui-core = "0.1"
 crossterm = { version = "0.29", features = ["event-stream"] }

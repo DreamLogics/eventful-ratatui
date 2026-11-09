@@ -1,0 +1,5 @@
+error: #[key_events] takes no arguments
+ --> tests/ui/arguments.rs:3:14
+  |
+3 | #[key_events(shard = Ui)]
+  |              ^^^^^^^^^^

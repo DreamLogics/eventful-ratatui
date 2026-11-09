@@ -1,0 +1,5 @@
+error: `dispatch` is reserved by the generated bridge; rename the event
+ --> tests/ui/reserved_name.rs:6:8
+  |
+6 |     fn dispatch(&self);
+  |        ^^^^^^^^

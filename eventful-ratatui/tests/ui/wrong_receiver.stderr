@@ -1,0 +1,32 @@
+error[E0277]: the trait bound `NotAListener: Keys` is not satisfied
+  --> tests/ui/wrong_receiver.rs:18:25
+   |
+18 |     let _ = target.keys.connect_to(target);
+   |                         ^^^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `Keys` is not implemented for `NotAListener`
+  --> tests/ui/wrong_receiver.rs:13:1
+   |
+13 | struct NotAListener {
+   | ^^^^^^^^^^^^^^^^^^^
+help: this trait has no implementations, consider adding one
+  --> tests/ui/wrong_receiver.rs:7:1
+   |
+ 7 | / trait Keys {
+ 8 | |     #[key("d")]
+ 9 | |     fn delete(&self);
+10 | | }
+   | |_^
+note: required for `KeysEventSet` to implement `ConnectEvents<NotAListener>`
+  --> tests/ui/wrong_receiver.rs:6:1
+   |
+ 6 | #[key_events]
+   | ^^^^^^^^^^^^^
+ 7 | trait Keys {
+   |       ^^^^
+note: required by a bound in `KeysBridge::connect_to`
+  --> tests/ui/wrong_receiver.rs:6:1
+   |
+ 6 | #[key_events]
+   | ^^^^^^^^^^^^^ required by this bound in `KeysBridge::connect_to`
+   = note: this error originates in the attribute macro `::eventful_rs::events` which comes from the expansion of the attribute macro `key_events` (in Nightly builds, run with -Z macro-backtrace for more info)

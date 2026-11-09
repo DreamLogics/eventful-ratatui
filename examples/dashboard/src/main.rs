@@ -9,6 +9,22 @@ use importer::*;
 
 declare_shard!(Ui, runtime = main);
 
+/// The dashboard's key bindings. Each chord queues the event; `Dashboard`
+/// handles it like any other.
+#[key_events]
+trait DashKeys {
+    #[key("j", "down")]
+    fn next(&self);
+    #[key("k", "up")]
+    fn previous(&self);
+    #[key("r")]
+    fn restart(&self);
+    #[key("q", "esc")]
+    fn quit(&self) {
+        quit();
+    }
+}
+
 #[eventful(shard = Ui)]
 struct Dashboard {
     items: RefCell<Vec<String>>,
@@ -19,7 +35,21 @@ struct Dashboard {
     running: Cell<bool>,
     importer: ShardRcHandle<Importer>,
     ui: Invalidate,
-    keys: Keymap<Dashboard>,
+    keys: DashKeysBridge,
+}
+
+impl DashKeys for Dashboard {
+    fn next(&self) {
+        self.select(ListState::select_next);
+    }
+    fn previous(&self) {
+        self.select(ListState::select_previous);
+    }
+    fn restart(&self) {
+        if !self.running.get() {
+            self.importer.start();
+        }
+    }
 }
 
 impl ImportEvents for Dashboard {
@@ -65,11 +95,6 @@ impl Dashboard {
         }
         Handled::Yes
     }
-    fn restart(&self) {
-        if !self.running.get() {
-            self.importer.start();
-        }
-    }
 }
 
 impl Component for Dashboard {
@@ -112,7 +137,7 @@ impl Component for Dashboard {
     fn on_input(&self, event: &InputEvent) -> Handled {
         match event {
             InputEvent::Mouse(mouse) => self.on_mouse(mouse),
-            _ => self.keys.dispatch(self, event),
+            _ => self.keys.dispatch(event),
         }
     }
 }
@@ -128,17 +153,13 @@ async fn main() -> eventful_ratatui::Result<()> {
         running: Cell::new(false),
         importer: importer.clone(),
         ui: Invalidate::new(),
-        keys: Keymap::new()
-            .bind("j", |d: &Dashboard| d.select(ListState::select_next))
-            .bind("down", |d: &Dashboard| d.select(ListState::select_next))
-            .bind("k", |d: &Dashboard| d.select(ListState::select_previous))
-            .bind("up", |d: &Dashboard| d.select(ListState::select_previous))
-            .bind("r", Dashboard::restart)
-            .bind("q", |_| quit())
-            .bind("esc", |_| quit()),
+        keys: DashKeysBridge::new(),
         events: Default::default(),
     })?;
-    let _subscription = importer.events().role::<()>().connect(&dash).scoped();
+    let _subscriptions = [
+        importer.events().role::<()>().connect(&dash).scoped(),
+        dash.keys.connect_to(&dash).scoped(),
+    ];
     importer.start();
     Tui::new().mouse(true).run(&dash).await
 }
