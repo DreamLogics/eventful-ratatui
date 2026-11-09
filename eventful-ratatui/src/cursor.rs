@@ -11,7 +11,10 @@ thread_local! {
 /// Show the cursor at `position` in this frame. Call it from `render`; the
 /// last call in a frame wins.
 pub fn show_at(position: Position) {
-    CURSOR.with(|cursor| cursor.set(Some(position)));
+    // Inside a scrolled viewport, map to the screen; hidden if scrolled out.
+    if let Some(position) = crate::tree::to_screen(position) {
+        CURSOR.with(|cursor| cursor.set(Some(position)));
+    }
 }
 
 /// Take this frame's request.

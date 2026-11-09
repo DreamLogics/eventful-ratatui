@@ -4,6 +4,7 @@ members = [
     "eventful-ratatui-macros",
     "examples/dashboard",
     "examples/chat",
+    "examples/gallery",
 ]
 resolver = "3"
 
@@ -28,3 +29,5 @@ crossterm = { version = "0.29", features = ["event-stream"] }
 futures = "0.3"
 futures-timer = "3"
 tokio = "1.53"
+unicode-segmentation = "1.12"
+unicode-width = "0.2"

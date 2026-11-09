@@ -2,6 +2,7 @@
 //! Run with `cargo run -p dashboard`; `r` imports again, `q` quits. Click an
 //! item or scroll to select.
 use eventful_ratatui::prelude::*;
+use eventful_ratatui::ratatui::widgets::{Gauge, List, ListState};
 use eventful_rs::*;
 use std::cell::{Cell, RefCell};
 mod importer;

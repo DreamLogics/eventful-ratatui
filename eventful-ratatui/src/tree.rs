@@ -30,6 +30,42 @@ pub(crate) struct Node {
     pub(crate) focusable: bool,
     /// The overlay this node was rendered in, or [`BASE`].
     pub(crate) layer: u64,
+    /// The area the component was given, before any viewport transform.
+    pub(crate) content_area: Rect,
+}
+
+/// A scrolled viewport: content coordinates plus `(dx, dy)` are screen
+/// coordinates, clipped to `clip`.
+#[derive(Clone, Copy, Debug)]
+struct Viewport {
+    dx: i32,
+    dy: i32,
+    clip: Rect,
+}
+
+impl Viewport {
+    fn area(self, area: Rect) -> Rect {
+        let x = i32::from(area.x) + self.dx;
+        let y = i32::from(area.y) + self.dy;
+        let (Ok(x), Ok(y)) = (u16::try_from(x.max(0)), u16::try_from(y.max(0))) else {
+            return Rect::ZERO;
+        };
+        let width = (i32::from(area.width) + (i32::from(area.x) + self.dx).min(0)).max(0);
+        let height = (i32::from(area.height) + (i32::from(area.y) + self.dy).min(0)).max(0);
+        let moved = Rect::new(x, y, width as u16, height as u16);
+        let clipped = moved.intersection(self.clip);
+        if clipped.is_empty() {
+            Rect::new(clipped.x, clipped.y, 0, 0)
+        } else {
+            clipped
+        }
+    }
+    fn position(self, position: Position) -> Option<Position> {
+        let x = u16::try_from(i32::from(position.x) + self.dx).ok()?;
+        let y = u16::try_from(i32::from(position.y) + self.dy).ok()?;
+        let position = Position::new(x, y);
+        self.clip.contains(position).then_some(position)
+    }
 }
 
 /// Render trees of this thread's loop.
@@ -43,6 +79,8 @@ struct Tree {
     frame: Vec<Node>,
     /// Nodes whose `render` is running, innermost last.
     open: Vec<usize>,
+    /// Viewports being rendered into, innermost last.
+    viewports: Vec<Viewport>,
     /// The last completed frame.
     last: Vec<Node>,
 }
@@ -65,6 +103,12 @@ pub(crate) fn record(
         }
         let parent = tree.open.last().copied();
         tree.open.push(tree.frame.len());
+        let content_area = area;
+        let area = tree
+            .viewports
+            .iter()
+            .rev()
+            .fold(area, |area, v| v.area(area));
         tree.frame.push(Node {
             area,
             target: target(),
@@ -72,6 +116,7 @@ pub(crate) fn record(
             parent,
             focusable,
             layer: tree.layer,
+            content_area,
         });
         Recording(true)
     })
@@ -110,10 +155,38 @@ impl Drop for Active {
     }
 }
 
+/// Render what follows into a viewport: content coordinates shifted by
+/// `(dx, dy)` and clipped to `clip`, until the guard drops. Nested viewports
+/// compose.
+pub(crate) fn push_viewport(dx: i32, dy: i32, clip: Rect) -> ViewportGuard {
+    TREE.with_borrow_mut(|tree| tree.viewports.push(Viewport { dx, dy, clip }));
+    ViewportGuard
+}
+
+/// Ends a [`push_viewport`].
+pub(crate) struct ViewportGuard;
+
+impl Drop for ViewportGuard {
+    fn drop(&mut self) {
+        TREE.with_borrow_mut(|tree| tree.viewports.pop());
+    }
+}
+
+/// Map a content position through the open viewports to the screen.
+pub(crate) fn to_screen(position: Position) -> Option<Position> {
+    TREE.with_borrow(|tree| {
+        tree.viewports
+            .iter()
+            .rev()
+            .try_fold(position, |position, v| v.position(position))
+    })
+}
+
 /// Start recording a frame.
 pub(crate) fn begin_frame() {
     let _old = TREE.with_borrow_mut(|tree| {
         tree.open.clear();
+        tree.viewports.clear();
         tree.layer = BASE;
         mem::take(&mut tree.frame)
     });

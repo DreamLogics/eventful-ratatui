@@ -20,6 +20,13 @@ ratatui-core.workspace = true
 crossterm.workspace = true
 futures.workspace = true
 futures-timer.workspace = true
+unicode-segmentation = { workspace = true, optional = true }
+unicode-width = { workspace = true, optional = true }
+
+[features]
+default = ["components"]
+## Ready-made components: buttons, inputs, lists, tabs, dialogs and more.
+components = ["dep:unicode-segmentation", "dep:unicode-width"]
 
 [dev-dependencies]
 trybuild = "1"

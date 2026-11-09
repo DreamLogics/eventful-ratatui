@@ -379,6 +379,8 @@ dependencies = [
  "ratatui",
  "ratatui-core",
  "trybuild",
+ "unicode-segmentation",
+ "unicode-width",
 ]
 
 [[package]]
@@ -558,6 +560,14 @@ dependencies = [
  "memchr",
  "pin-project-lite",
  "slab",
+]
+
+[[package]]
+name = "gallery"
+version = "0.1.0"
+dependencies = [
+ "eventful-ratatui",
+ "eventful-rs",
 ]
 
 [[package]]
