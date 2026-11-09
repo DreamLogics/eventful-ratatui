@@ -6,7 +6,7 @@
 //! entry rendered inside another one's `render` is its child.
 //!
 //! A mouse event goes to the topmost component under the pointer, then
-//! bubbles to its parents until one returns [`Handled::Yes`]. A component that
+//! bubbles to its parents until one returns [`Handled::Yes`](crate::Handled::Yes). A component that
 //! handles a button press captures the mouse: drags and the release go to it
 //! and its parents, even when the pointer leaves its area. If nothing handles
 //! the event and the root was not hit-tested itself (it is not an `Rc` or
