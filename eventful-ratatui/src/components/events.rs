@@ -35,3 +35,29 @@ pub trait TextEvents {
     /// The user pressed Enter.
     fn submitted(&self, text: String) {}
 }
+
+/// Emitted by components holding a number: sliders and spin boxes.
+#[eventful_rs::events]
+pub trait ValueEvents {
+    /// The user changed the value.
+    fn changed(&self, value: f64) {}
+}
+
+/// Emitted by components that trigger named actions: menu bars and
+/// breadcrumbs.
+#[eventful_rs::events]
+pub trait ActionEvents {
+    /// The user triggered the action with this id.
+    fn triggered(&self, id: String) {}
+}
+
+/// Emitted by [`Tree`](super::Tree).
+#[eventful_rs::events]
+pub trait TreeEvents {
+    /// The user selected the node with this id.
+    fn selected(&self, id: String) {}
+    /// The user activated the node with this id: Enter or a double click.
+    fn activated(&self, id: String) {}
+    /// The user expanded (`true`) or collapsed the node with this id.
+    fn toggled(&self, id: String, expanded: bool) {}
+}

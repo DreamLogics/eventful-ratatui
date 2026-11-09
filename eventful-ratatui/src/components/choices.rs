@@ -48,6 +48,8 @@ impl Row {
 
 /// Runs when a row is picked.
 type PickHook = Rc<dyn Fn(usize)>;
+/// Sees input first.
+type KeyHook = Rc<dyn Fn(&Event) -> Handled>;
 
 pub(crate) struct Choices {
     rows: RefCell<Vec<Row>>,
@@ -61,6 +63,7 @@ pub(crate) struct Choices {
     /// Rows shown at most.
     max_rows: Cell<u16>,
     on_pick: RefCell<Option<PickHook>>,
+    on_key: RefCell<Option<KeyHook>>,
 }
 
 impl Choices {
@@ -74,6 +77,7 @@ impl Choices {
             focusable,
             max_rows: Cell::new(12),
             on_pick: RefCell::default(),
+            on_key: RefCell::default(),
         });
         choices.highlight_first();
         choices
@@ -81,6 +85,10 @@ impl Choices {
 
     pub(crate) fn on_pick(&self, hook: impl Fn(usize) + 'static) {
         *self.on_pick.borrow_mut() = Some(Rc::new(hook));
+    }
+
+    pub(crate) fn on_key(&self, hook: impl Fn(&Event) -> Handled + 'static) {
+        *self.on_key.borrow_mut() = Some(Rc::new(hook));
     }
 
     pub(crate) fn set_rows(&self, rows: Vec<Row>) {
@@ -254,6 +262,12 @@ impl Component for Choices {
     }
 
     fn on_input(&self, event: &Event) -> Handled {
+        let hook = self.on_key.borrow().clone();
+        if let Some(hook) = hook
+            && hook(event) == Handled::Yes
+        {
+            return Handled::Yes;
+        }
         if let Event::Mouse(m) = event {
             match m.kind {
                 MouseEventKind::Moved => {
