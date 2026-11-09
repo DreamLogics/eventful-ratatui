@@ -1,288 +1,222 @@
-//! [`FocusChain`]: the path from a container to the focused component. Input
-//! goes to the focused leaf and bubbles up while it is not handled. Calls are
-//! direct, not queued events, so bubbling gets an immediate answer.
-use crate::{Component, Handled, invalidate};
-use crossterm::event::Event;
-use eventful_rs::{Eventful, HasEvents, ShardRc, ShardWeak};
-use std::{cell::RefCell, fmt, rc::Rc};
+//! Keyboard focus: one focused component per loop.
+//!
+//! Components opt in with [`Component::focusable`](crate::Component::focusable).
+//! Tab and BackTab move between focusable components in render order, a click
+//! focuses the component under the pointer, and key input goes to the focused
+//! component first, then bubbles through the components that rendered it, then
+//! to the root. With nothing focused, the root gets every key.
+//!
+//! Overlays scope the traversal: while a modal dialog or a menu is open, Tab
+//! stays inside it. See [`crate::overlay`].
+//!
+//! Pass the component itself to these functions, not the `Rc` or `ShardRc`
+//! holding it: inside `render` or `on_input`, that is `self`.
+//!
+//! ```
+//! use eventful_ratatui::prelude::*;
+//!
+//! /// A box that shows whether it has focus.
+//! struct Field;
+//! impl Component for Field {
+//!     fn render(&self, area: Rect, buf: &mut Buffer) {
+//!         let style = if focus::is_focused(self) {
+//!             Style::new().reversed()
+//!         } else {
+//!             Style::new()
+//!         };
+//!         Block::bordered().border_style(style).render(area, buf);
+//!     }
+//!     fn focusable(&self) -> bool {
+//!         true
+//!     }
+//! }
+//! ```
+use crate::{
+    component::{ComponentRef, addr_of},
+    invalidate,
+    tree::{self, Handle, Node},
+};
+use std::cell::RefCell;
 
-/// A weak reference to a component, with its type erased.
-trait Target {
-    /// Pass input to the component, if it is still alive.
-    fn on_input(&self, event: &Event) -> Option<Handled>;
-    /// Whether the component is still alive.
-    fn is_alive(&self) -> bool;
+/// Focus of this thread's loop.
+#[derive(Default)]
+struct State {
+    /// The focused component.
+    focused: Option<ComponentRef>,
+    /// A component asked for focus before it was first rendered.
+    pending: Option<*const ()>,
 }
 
-impl<C> Target for ShardWeak<C>
-where
-    C: Component + Eventful + HasEvents<C::EventSetType>,
-{
-    fn on_input(&self, event: &Event) -> Option<Handled> {
-        self.upgrade().map(|component| (*component).on_input(event))
-    }
-    fn is_alive(&self) -> bool {
-        self.upgrade().is_some()
-    }
+thread_local! {
+    static STATE: RefCell<State> = RefCell::default();
 }
 
-impl<C: Component + ?Sized> Target for std::rc::Weak<C> {
-    fn on_input(&self, event: &Event) -> Option<Handled> {
-        self.upgrade().map(|component| (*component).on_input(event))
-    }
-    fn is_alive(&self) -> bool {
-        self.strong_count() > 0
-    }
-}
-
-/// A weak, type-erased reference to a component on this shard, for a
-/// [`FocusChain`]. It does not keep the component alive; input to a
-/// collected component is skipped.
-#[derive(Clone)]
-pub struct ComponentRef {
-    /// The component.
-    target: Rc<dyn Target>,
-    /// The component's address, for identity checks.
-    addr: *const (),
-}
-
-impl ComponentRef {
-    /// Whether this refers to `component`, which must still be alive.
-    pub fn refers_to<C: ?Sized>(&self, component: &C) -> bool {
-        std::ptr::eq(self.addr, std::ptr::from_ref(component).cast()) && self.target.is_alive()
-    }
-
-    /// Pass `event` to the component, if it is still alive.
-    pub(crate) fn offer(&self, event: &Event) -> Option<Handled> {
-        self.target.on_input(event)
-    }
-}
-
-impl<C> From<&ShardRc<C>> for ComponentRef
-where
-    C: Component + Eventful + HasEvents<C::EventSetType>,
-{
-    fn from(component: &ShardRc<C>) -> Self {
-        Self {
-            target: Rc::new(ShardRc::downgrade(component)),
-            addr: (&**component as *const C).cast(),
+/// Give focus to `component`. If it has not been rendered yet, it gets focus
+/// once it is.
+pub fn set<C: ?Sized>(component: &C) {
+    let addr = addr_of(component);
+    let target = tree::with_last(|nodes| tree::find(nodes, addr).map(|i| nodes[i].target.clone()));
+    let _old = STATE.with_borrow_mut(|state| match target {
+        Some(target) => {
+            state.pending = None;
+            state.focused.replace(target)
         }
-    }
-}
-
-impl<C: Component + ?Sized + 'static> From<&Rc<C>> for ComponentRef {
-    fn from(component: &Rc<C>) -> Self {
-        Self {
-            target: Rc::new(Rc::downgrade(component)),
-            addr: Rc::as_ptr(component).cast(),
+        None => {
+            state.pending = Some(addr);
+            state.focused.take()
         }
-    }
+    });
+    invalidate::mark();
 }
 
-impl fmt::Debug for ComponentRef {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("ComponentRef").field(&self.addr).finish()
-    }
+/// Remove focus from whatever has it.
+pub fn clear() {
+    let _old = STATE.with_borrow_mut(|state| {
+        state.pending = None;
+        state.focused.take()
+    });
+    invalidate::mark();
 }
 
-/// The focused path below a container, ordered from the outermost component
-/// to the focused leaf.
-///
-/// A container keeps one, renders its children with
-/// [`is_focused`](Self::is_focused) or [`contains`](Self::contains), and
-/// forwards input to [`dispatch`](Self::dispatch) before handling it itself:
-///
-/// ```
-/// use eventful_ratatui::prelude::*;
-///
-/// struct Panel {
-///     focus: FocusChain,
-///     keys: Keymap<Panel>,
-/// }
-/// impl Component for Panel {
-///     fn render(&self, area: Rect, buf: &mut Buffer) {}
-///     fn on_input(&self, event: &InputEvent) -> Handled {
-///         match self.focus.dispatch(event) {
-///             Handled::No => self.keys.dispatch(self, event),
-///             handled => handled,
-///         }
-///     }
-/// }
-/// ```
-///
-/// Changing the focus requests a redraw.
-#[derive(Debug, Default)]
-pub struct FocusChain {
-    /// Outermost first, focused leaf last.
-    path: RefCell<Vec<ComponentRef>>,
+/// Whether `component` has focus.
+pub fn is_focused<C: ?Sized>(component: &C) -> bool {
+    let addr = addr_of(component);
+    STATE.with_borrow(|state| {
+        state.pending == Some(addr)
+            || state
+                .focused
+                .as_ref()
+                .is_some_and(|focused| focused.refers_to(component))
+    })
 }
 
-impl FocusChain {
-    /// An empty chain: nothing below the container has focus.
-    pub fn new() -> Self {
-        Self::default()
+/// Whether `component` or something it rendered has focus, as of the last
+/// frame. Containers use it to highlight while a child is focused.
+pub fn within<C: ?Sized>(component: &C) -> bool {
+    if is_focused(component) {
+        return true;
     }
-
-    /// Replace the focused path, outermost first.
-    pub fn focus<I>(&self, path: I)
-    where
-        I: IntoIterator,
-        I::Item: Into<ComponentRef>,
-    {
-        *self.path.borrow_mut() = path.into_iter().map(Into::into).collect();
-        invalidate::mark();
-    }
-
-    /// Move focus into `component`, a child of the current leaf.
-    pub fn push(&self, component: impl Into<ComponentRef>) {
-        self.path.borrow_mut().push(component.into());
-        invalidate::mark();
-    }
-
-    /// Move focus out of the leaf, to its parent. Returns the old leaf.
-    pub fn pop(&self) -> Option<ComponentRef> {
-        let leaf = self.path.borrow_mut().pop();
-        invalidate::mark();
-        leaf
-    }
-
-    /// Give up focus entirely.
-    pub fn clear(&self) {
-        self.path.borrow_mut().clear();
-        invalidate::mark();
-    }
-
-    /// The focused leaf, if any.
-    pub fn leaf(&self) -> Option<ComponentRef> {
-        self.path.borrow().last().cloned()
-    }
-
-    /// Whether `component` is the focused leaf.
-    pub fn is_focused<C: ?Sized>(&self, component: &C) -> bool {
-        self.path
-            .borrow()
-            .last()
-            .is_some_and(|leaf| leaf.refers_to(component))
-    }
-
-    /// Whether `component` is on the focused path.
-    pub fn contains<C: ?Sized>(&self, component: &C) -> bool {
-        self.path
-            .borrow()
+    let addr = addr_of(component);
+    let Some(focused) = focused() else {
+        return false;
+    };
+    tree::with_last(|nodes| {
+        let mut next = nodes
             .iter()
-            .any(|entry| entry.refers_to(component))
-    }
-
-    /// Offer `event` to the focused leaf, then to each component above it,
-    /// until one handles it. Collected components are skipped. Handlers may
-    /// change the focus; this event still follows the path it started on.
-    ///
-    /// Mouse events are not dispatched: the pointer picks their target, see
-    /// [`crate::mouse`].
-    pub fn dispatch(&self, event: &Event) -> Handled {
-        if matches!(event, Event::Mouse(_)) {
-            return Handled::No;
+            .rposition(|node| node.target.is(focused.addr()));
+        while let Some(index) = next {
+            if nodes[index].target.is(addr) {
+                return true;
+            }
+            next = nodes[index].parent;
         }
-        let path = self.path.borrow().clone();
-        for component in path.iter().rev() {
-            if component.target.on_input(event) == Some(Handled::Yes) {
-                return Handled::Yes;
+        false
+    })
+}
+
+/// The focused component, if any.
+pub fn focused() -> Option<ComponentRef> {
+    STATE.with_borrow(|state| state.focused.clone().filter(ComponentRef::is_alive))
+}
+
+/// Move focus to the next focusable component, wrapping around. Tab does this
+/// when no component handles it.
+pub fn next() {
+    traverse(true);
+}
+
+/// Move focus to the previous focusable component, wrapping around. BackTab
+/// does this when no component handles it.
+pub fn previous() {
+    traverse(false);
+}
+
+/// Move focus within the current scope.
+fn traverse(forward: bool) {
+    let scope = crate::overlay::focus_scope();
+    let current = focused();
+    let target = tree::with_last(|nodes| {
+        // Stay in the focused component's layer if it is in scope, so Tab
+        // in a non-modal popup stays in the popup.
+        let layer = current
+            .as_ref()
+            .and_then(|focused| tree::find(nodes, focused.addr()))
+            .map(|i| nodes[i].layer)
+            .filter(|layer| crate::overlay::in_scope(*layer, scope))
+            .unwrap_or(scope);
+        let mut stops: Vec<&Node> = Vec::new();
+        for node in nodes.iter().filter(|n| n.focusable && n.layer == layer) {
+            if !stops.iter().any(|stop| stop.target.is(node.target.addr())) {
+                stops.push(node);
             }
         }
-        Handled::No
+        let position = current
+            .as_ref()
+            .and_then(|focused| stops.iter().position(|stop| stop.target.is(focused.addr())));
+        let index = match (position, forward) {
+            _ if stops.is_empty() => return None,
+            (Some(i), true) => (i + 1) % stops.len(),
+            (Some(i), false) => (i + stops.len() - 1) % stops.len(),
+            (None, true) => 0,
+            (None, false) => stops.len() - 1,
+        };
+        Some(stops[index].target.clone())
+    });
+    if let Some(target) = target {
+        focus_ref(target);
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crossterm::event::{KeyCode, KeyEvent};
-    use ratatui_core::{buffer::Buffer, layout::Rect};
-    use std::cell::Cell;
+/// Focus a component found in the render tree.
+pub(crate) fn focus_ref(target: ComponentRef) {
+    let _old = STATE.with_borrow_mut(|state| {
+        state.pending = None;
+        state.focused.replace(target)
+    });
+    invalidate::mark();
+}
 
-    /// Handles one key and records what reached it.
-    struct Probe {
-        key: char,
-        seen: Cell<u32>,
-        chain: Option<Rc<FocusChain>>,
+/// Restore a focus saved with [`focused`], or clear it.
+pub(crate) fn restore(saved: Option<ComponentRef>) {
+    match saved.filter(ComponentRef::is_alive) {
+        Some(target) => focus_ref(target),
+        None => clear(),
     }
-    impl Probe {
-        fn new(key: char) -> Rc<Self> {
-            Rc::new(Self {
-                key,
-                seen: Cell::new(0),
-                chain: None,
-            })
-        }
-    }
-    impl Component for Probe {
-        fn render(&self, _: Rect, _: &mut Buffer) {}
-        fn on_input(&self, event: &Event) -> Handled {
-            self.seen.set(self.seen.get() + 1);
-            if let Some(chain) = &self.chain {
-                chain.clear(); // Changing focus mid-dispatch must not panic.
-            }
-            let Event::Key(key) = event else {
-                return Handled::No;
-            };
-            (key.code == KeyCode::Char(self.key)).into()
-        }
-    }
+}
 
-    fn key(c: char) -> Event {
-        Event::Key(KeyEvent::from(KeyCode::Char(c)))
+/// Resolve a pending focus request against the frame just rendered.
+pub(crate) fn end_frame() {
+    let Some(addr) = STATE.with_borrow(|state| state.pending) else {
+        return;
+    };
+    let target = tree::with_last(|nodes| tree::find(nodes, addr).map(|i| nodes[i].target.clone()));
+    if let Some(target) = target {
+        focus_ref(target);
     }
+}
 
-    #[test]
-    fn input_bubbles_from_the_leaf_until_handled() {
-        let (outer, inner) = (Probe::new('o'), Probe::new('i'));
-        let chain = FocusChain::new();
-        chain.focus([&outer, &inner]);
-        assert_eq!(chain.dispatch(&key('i')), Handled::Yes);
-        assert_eq!((outer.seen.get(), inner.seen.get()), (0, 1));
-        assert_eq!(chain.dispatch(&key('o')), Handled::Yes);
-        assert_eq!((outer.seen.get(), inner.seen.get()), (1, 2));
-        assert_eq!(chain.dispatch(&key('x')), Handled::No);
-        assert_eq!((outer.seen.get(), inner.seen.get()), (2, 3));
+/// The focused node and its ancestors, innermost first, if the focused
+/// component was rendered in the last frame in a layer accepted by `scope`.
+pub(crate) fn key_path(scope: impl Fn(u64) -> bool) -> Option<Vec<(ComponentRef, Handle)>> {
+    let focused = focused()?;
+    tree::with_last(|nodes| {
+        let index = tree::find(nodes, focused.addr())?;
+        scope(nodes[index].layer).then(|| tree::path(nodes, index))
+    })
+}
+
+/// Clears focus when a loop run ends. Focus requested before the run starts
+/// is kept, so apps can set the initial focus before running.
+pub(crate) struct Active;
+
+impl Active {
+    pub(crate) fn start() -> Self {
+        Self
     }
+}
 
-    #[test]
-    fn tracks_focus_by_identity() {
-        let (outer, inner, other) = (Probe::new('o'), Probe::new('i'), Probe::new('x'));
-        let chain = FocusChain::new();
-        chain.push(&outer);
-        chain.push(&inner);
-        assert!(chain.is_focused(&*inner));
-        assert!(!chain.is_focused(&*outer));
-        assert!(chain.contains(&*outer));
-        assert!(!chain.contains(&*other));
-        assert!(chain.pop().unwrap().refers_to(&*inner));
-        assert!(chain.is_focused(&*outer));
-    }
-
-    #[test]
-    fn collected_components_are_skipped() {
-        let outer = Probe::new('o');
-        let chain = FocusChain::new();
-        {
-            let inner = Probe::new('i');
-            chain.focus([&outer, &inner]);
-        }
-        assert_eq!(chain.dispatch(&key('o')), Handled::Yes);
-        assert_eq!(chain.dispatch(&key('i')), Handled::No);
-        assert_eq!(outer.seen.get(), 2);
-    }
-
-    #[test]
-    fn handlers_may_change_focus() {
-        let chain = Rc::new(FocusChain::new());
-        let probe = Rc::new(Probe {
-            key: 'p',
-            seen: Cell::new(0),
-            chain: Some(chain.clone()),
-        });
-        chain.focus([&probe]);
-        assert_eq!(chain.dispatch(&key('p')), Handled::Yes);
-        assert!(chain.leaf().is_none());
+impl Drop for Active {
+    fn drop(&mut self) {
+        let _old = STATE.with_borrow_mut(std::mem::take);
     }
 }

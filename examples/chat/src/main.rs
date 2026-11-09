@@ -30,7 +30,6 @@ struct Messages {
     scroll: Cell<usize>,
     /// Rendered height, for paging.
     height: Cell<usize>,
-    focused: Cell<bool>,
     ui: Invalidate,
     keys: Keymap<Messages>,
 }
@@ -43,7 +42,6 @@ impl Messages {
             lines: RefCell::default(),
             scroll: Cell::new(0),
             height: Cell::new(0),
-            focused: Cell::new(false),
             ui: Invalidate::new(),
             keys: Keymap::new()
                 .bind("k", move |m: &Messages| up(m, 1))
@@ -94,7 +92,7 @@ impl Component for Messages {
             0 => format!("Messages ({})", lines.len()),
             n => format!("Messages ({}, {n} up)", lines.len()),
         };
-        let block = frame(&title, self.focused.get());
+        let block = frame(&title, focus::is_focused(self));
         let inner = block.inner(area);
         block.render(area, buf);
         let height = usize::from(inner.height);
@@ -104,7 +102,6 @@ impl Component for Messages {
         Paragraph::new(lines[start..end].to_vec()).render(inner, buf);
     }
     fn on_input(&self, event: &InputEvent) -> Handled {
-        // Clicks bubble up to the app, which moves the focus.
         match event {
             InputEvent::Mouse(mouse) => match mouse.kind {
                 MouseEventKind::ScrollUp => self.scroll_up(3),
@@ -115,13 +112,15 @@ impl Component for Messages {
         }
         Handled::Yes
     }
+    fn focusable(&self) -> bool {
+        true
+    }
 }
 
 /// The line being typed. Enter sends it.
 #[eventful(shard = Ui)]
 struct Input {
     text: RefCell<String>,
-    focused: Cell<bool>,
     client: ShardRcHandle<Client>,
     ui: Invalidate,
 }
@@ -129,10 +128,17 @@ struct Input {
 impl Component for Input {
     fn render(&self, area: Rect, buf: &mut Buffer) {
         let text = self.text.borrow();
-        let cursor = if self.focused.get() { "▏" } else { "" };
-        Paragraph::new(format!("{text}{cursor}"))
-            .block(frame("Message", self.focused.get()))
-            .render(area, buf);
+        let focused = focus::is_focused(self);
+        let block = frame("Message", focused);
+        let inner = block.inner(area);
+        Paragraph::new(text.as_str()).block(block).render(area, buf);
+        if focused {
+            let column = u16::try_from(text.chars().count()).unwrap_or(u16::MAX);
+            cursor::show_at(Position::new(
+                inner.x + column.min(inner.width.saturating_sub(1)),
+                inner.y,
+            ));
+        }
     }
     fn on_input(&self, event: &InputEvent) -> Handled {
         let InputEvent::Key(key) = event else {
@@ -161,63 +167,35 @@ impl Component for Input {
         self.ui.invalidate();
         Handled::Yes
     }
+    fn focusable(&self) -> bool {
+        true
+    }
 }
 
-/// The root: lays out the children, owns focus and handles what they don't.
+/// The root: lays out the children and handles what they don't. Tab and
+/// clicks move the focus between them.
 #[eventful(shard = Ui)]
 struct App {
     messages: ShardRc<Messages>,
     input: ShardRc<Input>,
     status: RefCell<Line<'static>>,
-    focus: FocusChain,
     keys: Keymap<App>,
     ui: Invalidate,
 }
 
 impl App {
     fn new(messages: ShardRc<Messages>, input: ShardRc<Input>) -> Self {
-        let app = Self {
+        focus::set(&*input);
+        Self {
             messages,
             input,
             status: RefCell::new(Line::from("connecting…").yellow()),
-            focus: FocusChain::new(),
             keys: Keymap::new()
-                .bind("tab", App::focus_next)
-                .bind("backtab", App::focus_next)
                 .bind("esc", |_| quit())
                 .bind("ctrl+c", |_| quit()),
             ui: Invalidate::new(),
             events: Default::default(),
-        };
-        app.focus.focus([&app.input]);
-        app.input.focused.set(true);
-        app
-    }
-
-    /// Toggle focus between the input box and the message list.
-    fn focus_next(&self) {
-        let to_input = !self.focus.is_focused(&*self.input);
-        if to_input {
-            self.focus.focus([&self.input]);
-        } else {
-            self.focus.focus([&self.messages]);
         }
-        self.input.focused.set(to_input);
-        self.messages.focused.set(!to_input);
-    }
-
-    /// Focus the child that was clicked.
-    fn on_mouse(&self, mouse: &MouseEvent) -> Handled {
-        if mouse.kind != MouseEventKind::Down(MouseButton::Left) {
-            return Handled::No;
-        }
-        let on_input = mouse::is_hit(&*self.input, mouse);
-        if on_input != self.focus.is_focused(&*self.input)
-            && (on_input || mouse::is_hit(&*self.messages, mouse))
-        {
-            self.focus_next();
-        }
-        Handled::Yes
     }
 
     fn set_status(&self, status: Line<'static>) {
@@ -251,13 +229,7 @@ impl Component for App {
         line.render(status, buf);
     }
     fn on_input(&self, event: &InputEvent) -> Handled {
-        if let InputEvent::Mouse(mouse) = event {
-            return self.on_mouse(mouse);
-        }
-        match self.focus.dispatch(event) {
-            Handled::No => self.keys.dispatch(self, event),
-            handled => handled,
-        }
+        self.keys.dispatch(self, event)
     }
 }
 
@@ -271,7 +243,6 @@ async fn main() -> eventful_ratatui::Result<()> {
     let messages = Messages::bind_local(Messages::new())?;
     let input = Input::bind_local(Input {
         text: RefCell::default(),
-        focused: Cell::new(false),
         client: client.clone(),
         ui: Invalidate::new(),
         events: Default::default(),

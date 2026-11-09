@@ -16,15 +16,21 @@
 extern crate self as eventful_ratatui;
 
 pub mod component;
+pub mod cursor;
+mod dispatch;
 mod error;
 pub mod focus;
 pub mod invalidate;
 pub mod keymap;
 pub mod mouse;
+pub mod overlay;
 pub mod run;
 pub mod terminal;
+pub mod testing;
+pub mod theme;
+mod tree;
 
-pub use component::{Component, Handled};
+pub use component::{Component, ComponentRef, Handled};
 /// The crossterm version this crate reads input with.
 pub use crossterm;
 pub use error::{Error, Result};
@@ -82,7 +88,6 @@ pub use error::{Error, Result};
 pub use eventful_ratatui_macros::key_events;
 /// The eventful-rs version this crate is built against.
 pub use eventful_rs;
-pub use focus::{ComponentRef, FocusChain};
 pub use invalidate::Invalidate;
 pub use keymap::{KeyChord, Keymap};
 /// The ratatui version this crate draws with.
@@ -96,8 +101,8 @@ pub use terminal::TerminalGuard;
 /// glob-imported next to `eventful_rs::*`, which has an `Event` of its own.
 pub mod prelude {
     pub use crate::{
-        Component, ComponentRef, FocusChain, Handled, Invalidate, KeyChord, Keymap, Quit, Tui,
-        key_events, mouse, quit, run_tui,
+        Component, ComponentRef, Handled, Invalidate, KeyChord, Keymap, Quit, Tui, cursor, focus,
+        invalidate, key_events, mouse, overlay, quit, run_tui, theme,
     };
     pub use crossterm::event::{
         Event as InputEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton,

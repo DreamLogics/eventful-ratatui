@@ -3,7 +3,12 @@
 //! The loop is meant to be the `#[sharded_main]` future, so it takes turns
 //! with queued calls and event handlers on the main shard. It waits for input,
 //! a redraw request or a tick, and draws at most once per frame interval.
-use crate::{Component, Error, Result, TerminalGuard, invalidate, mouse};
+use crate::{
+    Component, Result, TerminalGuard,
+    dispatch::{Dispatcher, Session},
+    invalidate,
+    theme::{self, Theme},
+};
 use crossterm::event::{Event, EventStream};
 use futures::{FutureExt, Stream, StreamExt, future::poll_fn, task::AtomicWaker};
 use futures_timer::Delay;
@@ -36,6 +41,8 @@ pub struct Tui {
     tick: Option<Duration>,
     /// Route mouse events by hit-testing.
     mouse: bool,
+    /// The theme to set when the loop starts.
+    theme: Option<Theme>,
 }
 
 impl Default for Tui {
@@ -44,6 +51,7 @@ impl Default for Tui {
             frame_interval: Duration::from_secs(1) / 60,
             tick: None,
             mouse: false,
+            theme: None,
         }
     }
 }
@@ -80,6 +88,12 @@ impl Tui {
         self
     }
 
+    /// Draw with `theme`. See [`crate::theme`].
+    pub fn theme(mut self, theme: Theme) -> Self {
+        self.theme = Some(theme);
+        self
+    }
+
     /// Take over the terminal and run `root` until [`quit`] is called or
     /// input ends. The terminal is restored on return and on panic.
     ///
@@ -99,9 +113,9 @@ impl Tui {
     /// components headlessly.
     ///
     /// Returns when [`quit`] is called, or when `input` ends, after drawing
-    /// any pending frame. Input is passed to `root`, except resizes, which
-    /// trigger a redraw, and mouse events if [`mouse`](Self::mouse) routing
-    /// is on.
+    /// any pending frame. Keys go to the focused component and bubble up to
+    /// `root` (see [`crate::focus`]); mouse events go to `root` unless
+    /// [`mouse`](Self::mouse) routing is on; resizes trigger a redraw.
     ///
     /// # Errors
     /// Fails if `input` yields an error or drawing fails.
@@ -118,9 +132,13 @@ impl Tui {
         C: Component + ?Sized + 'static,
     {
         let quit = QuitScope::enter();
-        let _mouse = self.mouse.then(mouse::Session::start);
-        let mut router = mouse::Router::default();
+        let _session = Session::start();
+        if let Some(theme) = self.theme.clone() {
+            theme::set(theme);
+        }
+        let mut dispatcher = Dispatcher::new(self.mouse);
         let mut tick = self.tick.map(|interval| (interval, Delay::new(interval)));
+        let mut timer = None;
         let mut last_frame: Option<Instant> = None;
         let mut next_frame: Option<Delay> = None;
         invalidate::mark(); // The first frame.
@@ -128,6 +146,9 @@ impl Tui {
             let wake = poll_fn(|cx| {
                 if quit.0.poll(cx).is_ready() {
                     return Poll::Ready(Wake::Quit);
+                }
+                if invalidate::poll_deadline(cx, &mut timer).is_ready() {
+                    invalidate::mark();
                 }
                 // Drawing goes before input, so a flood of input cannot
                 // starve it.
@@ -159,21 +180,16 @@ impl Tui {
             match wake {
                 Wake::Quit => return Ok(()),
                 Wake::Draw => {
-                    draw(terminal, root)?;
+                    dispatcher.draw(terminal, root)?;
                     last_frame = Some(Instant::now());
                     next_frame = None;
                 }
-                Wake::Input(Some(Ok(Event::Resize(..)))) | Wake::Tick => invalidate::mark(),
-                Wake::Input(Some(Ok(event @ Event::Mouse(mouse)))) if self.mouse => {
-                    router.dispatch(root, &event, &mouse);
-                }
-                Wake::Input(Some(Ok(event))) => {
-                    root.on_input(&event);
-                }
+                Wake::Tick => invalidate::mark(),
+                Wake::Input(Some(Ok(event))) => dispatcher.handle(root, &event),
                 Wake::Input(Some(Err(err))) => return Err(err.into()),
                 Wake::Input(None) => {
                     if invalidate::is_dirty() {
-                        draw(terminal, root)?;
+                        dispatcher.draw(terminal, root)?;
                     }
                     return Ok(());
                 }
@@ -188,22 +204,6 @@ enum Wake {
     Draw,
     Input(Option<io::Result<Event>>),
     Tick,
-}
-
-/// Draw one frame of `root`.
-fn draw<B, C>(terminal: &mut Terminal<B>, root: &C) -> Result<()>
-where
-    B: Backend,
-    B::Error: Send + Sync + 'static,
-    C: Component + ?Sized,
-{
-    invalidate::clear();
-    mouse::begin_frame();
-    terminal
-        .draw(|frame| root.render(frame.area(), frame.buffer_mut()))
-        .map_err(|err| Error::Backend(Box::new(err)))?;
-    mouse::end_frame();
-    Ok(())
 }
 
 /// Shared state of a [`Quit`] handle.

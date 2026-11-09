@@ -2,7 +2,7 @@
 use crossterm::event::{
     Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
-use eventful_ratatui::{Component, FocusChain, Handled, Tui, mouse};
+use eventful_ratatui::{Component, Handled, Tui, focus, mouse};
 use futures::{executor::block_on, stream};
 use ratatui::{Terminal, backend::TestBackend, buffer::Buffer, layout::Rect};
 use std::{cell::RefCell, io, rc::Rc, sync::Mutex};
@@ -95,7 +95,6 @@ struct Split {
     left: Rc<Pane>,
     right: Rc<Pane>,
     popup: Option<Rc<Pane>>,
-    focus: FocusChain,
     log: Log,
 }
 
@@ -105,7 +104,6 @@ impl Split {
             left,
             right,
             popup: None,
-            focus: FocusChain::new(),
             log: log.clone(),
         }
     }
@@ -123,9 +121,6 @@ impl Component for Split {
         }
     }
     fn on_input(&self, event: &Event) -> Handled {
-        if self.focus.dispatch(event) == Handled::Yes {
-            return Handled::Yes;
-        }
         if let Event::Mouse(event) = event {
             self.log
                 .borrow_mut()
@@ -247,7 +242,7 @@ fn focus_chains_do_not_route_mouse_events() {
         Pane::new("l", false, &log),
         Pane::new("r", false, &log),
     );
-    split.focus.focus([&split.right]);
+    focus::set(&*split.right);
     run(
         &split,
         vec![
