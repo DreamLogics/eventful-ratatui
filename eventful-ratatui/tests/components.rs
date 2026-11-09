@@ -430,3 +430,32 @@ fn labels_wrap_and_align() {
     let ui = Harness::new(Label::new("hi").alignment(Alignment::Right), 5, 1);
     assert_eq!(ui.lines(), ["   hi"]);
 }
+
+#[test]
+fn log_views_wrap_long_lines_and_scroll_by_rows() {
+    let log = LogView::new().wrap();
+    let mut ui = Harness::new(log.clone(), 11, 3);
+    log.push("short");
+    log.push(Line::from(vec![
+        Span::raw("alpha "),
+        Span::raw("beta gamma delta").red(),
+    ]));
+    ui.render();
+    let text = |ui: &Harness<LogView>| -> Vec<String> {
+        ui.lines()
+            .iter()
+            .map(|l| l.trim_end_matches(['│', '┃']).trim_end().to_owned())
+            .collect()
+    };
+    assert_eq!(text(&ui), ["alpha beta", "gamma", "delta"]);
+    assert_eq!(
+        ui.buffer()[(6, 0)].fg,
+        Color::Red,
+        "styles survive wrapping"
+    );
+    ui.key("tab").key("up");
+    assert_eq!(text(&ui)[0], "short", "scrolls by rows");
+    log.push("new");
+    ui.render();
+    assert_eq!(text(&ui)[0], "short", "held still while scrolled back");
+}
