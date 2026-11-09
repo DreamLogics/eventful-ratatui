@@ -65,6 +65,9 @@ pub enum Placement {
     /// Just below `anchor`, at least as wide as it, or above it when there is
     /// more room there. Dropdowns and context menus.
     Below(Rect),
+    /// Centered horizontally near the top, at the preferred size, like a
+    /// command palette.
+    Top,
     /// At a corner with a one-cell margin, at the preferred size.
     TopRight,
     /// At a corner with a one-cell margin, at the preferred size.
@@ -108,6 +111,15 @@ impl Placement {
                     anchor.y - size.height
                 };
                 Rect::new(x, y, width, size.height)
+            }
+            Self::Top => {
+                let size = preferred(Size::new(margin.width, margin.height.saturating_sub(2)));
+                Rect::new(
+                    screen.x + (screen.width - size.width) / 2,
+                    margin.y + 2.min(margin.height.saturating_sub(size.height)),
+                    size.width,
+                    size.height,
+                )
             }
             Self::TopRight | Self::BottomRight | Self::BottomLeft | Self::TopLeft => {
                 let size = preferred(margin.as_size());
@@ -307,6 +319,10 @@ impl Closer {
     pub fn close(self) {
         close(self.0);
     }
+    /// Whether the overlay is still open.
+    pub fn is_open(self) -> bool {
+        LAYERS.with_borrow(|layers| layers.iter().any(|l| l.id == self.0))
+    }
 }
 
 /// Resolves once an overlay closes. See [`Overlay::closed`].
@@ -356,11 +372,13 @@ thread_local! {
 
 /// Close layer `id`, restoring focus if it took it.
 fn close(id: u64) {
-    let layer = LAYERS.with_borrow_mut(|layers| {
+    // During thread teardown the layers may already be gone.
+    let layer = LAYERS.try_with(|layers| {
+        let mut layers = layers.borrow_mut();
         let index = layers.iter().position(|l| l.id == id)?;
         Some(layers.remove(index))
     });
-    let Some(layer) = layer else {
+    let Ok(Some(layer)) = layer else {
         return;
     };
     if layer.flags.take_focus {
@@ -416,6 +434,16 @@ pub(crate) fn end_frame() {
             .collect()
     });
     for id in pending {
+        // Something inside already asked for focus, like a dialog's default
+        // button.
+        let inside = focus::focused().is_some_and(|focused| {
+            tree::with_last(|nodes| {
+                tree::find(nodes, focused.addr()).is_some_and(|i| nodes[i].layer == id)
+            })
+        });
+        if inside {
+            continue;
+        }
         let target = tree::with_last(|nodes| {
             let in_layer = || nodes.iter().filter(|n| n.layer == id);
             in_layer()

@@ -7,7 +7,10 @@ use ratatui_core::{
     buffer::Buffer,
     layout::{Rect, Size},
 };
-use std::cell::{Cell, RefCell};
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+};
 
 /// How a button is emphasized.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -37,16 +40,19 @@ pub struct State {
     kind: Cell<ButtonKind>,
     enabled: Cell<bool>,
     events: ButtonEventsEmissions,
+    /// Runs synchronously on click, for composite components.
+    pub(crate) on_click: RefCell<Option<Rc<dyn Fn()>>>,
 }
 
 impl Button {
     /// A button labelled `label`.
     pub fn new(label: impl Into<String>) -> Self {
-        Self(std::rc::Rc::new(State {
+        Self(Rc::new(State {
             label: RefCell::new(label.into()),
             kind: Cell::new(ButtonKind::Normal),
             enabled: Cell::new(true),
             events: ButtonEventsEmissions::default(),
+            on_click: RefCell::default(),
         }))
     }
     /// Emphasize it as the main action.
@@ -86,11 +92,19 @@ impl Button {
     pub fn click(&self) {
         self.0.click();
     }
+    /// Run `hook` synchronously on every click.
+    pub(crate) fn on_click(&self, hook: impl Fn() + 'static) {
+        *self.0.on_click.borrow_mut() = Some(Rc::new(hook));
+    }
 }
 
 impl State {
     fn click(&self) {
         if self.enabled.get() {
+            let hook = self.on_click.borrow().clone();
+            if let Some(hook) = hook {
+                hook();
+            }
             self.events.clicked().emit();
         }
     }

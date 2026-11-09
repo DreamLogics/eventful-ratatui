@@ -22,6 +22,10 @@ use unicode_width::UnicodeWidthStr;
 
 /// Checks the text after every change; `Err` holds the message to show.
 type Validator = Box<dyn Fn(&str) -> Result<(), String>>;
+/// Sees input before the text input does.
+pub(crate) type Intercept = Rc<dyn Fn(&Event) -> Handled>;
+/// Runs with the text after a change or on Enter.
+pub(crate) type TextHook = Rc<dyn Fn(&str)>;
 
 handle! {
     /// A single-line text field.
@@ -59,6 +63,12 @@ pub struct State {
     validator: RefCell<Option<Validator>>,
     error: RefCell<Option<String>>,
     events: TextEventsEmissions,
+    /// Sees input first, for composite components like a combo box.
+    pub(crate) intercept: RefCell<Option<Intercept>>,
+    /// Runs synchronously after every edit.
+    pub(crate) on_change: RefCell<Option<TextHook>>,
+    /// Runs synchronously on Enter.
+    pub(crate) on_submit: RefCell<Option<TextHook>>,
 }
 
 impl TextInput {
@@ -76,6 +86,9 @@ impl TextInput {
             validator: RefCell::default(),
             error: RefCell::default(),
             events: TextEventsEmissions::default(),
+            intercept: RefCell::default(),
+            on_change: RefCell::default(),
+            on_submit: RefCell::default(),
         }))
     }
     /// Start with `text`, cursor at the end.
@@ -145,6 +158,10 @@ impl TextInput {
         self.0.anchor.set(Some(0));
         self.0.cursor.set(self.0.text.borrow().len());
         invalidate::invalidate();
+    }
+    /// The shared state, for composite components.
+    pub(crate) fn state(&self) -> &Rc<State> {
+        &self.0
     }
     /// Whether it can be edited and focused.
     pub fn is_enabled(&self) -> bool {
@@ -279,8 +296,21 @@ impl State {
         self.cursor.set(range.start + insert.len());
         self.anchor.set(None);
         self.validate();
+        let hook = self.on_change.borrow().clone();
+        if let Some(hook) = hook {
+            hook(&self.text.borrow().clone());
+        }
         self.events.changed().emit(self.text.borrow().clone());
         invalidate::invalidate();
+    }
+
+    fn submit(&self) {
+        let text = self.text.borrow().clone();
+        let hook = self.on_submit.borrow().clone();
+        if let Some(hook) = hook {
+            hook(&text);
+        }
+        self.events.submitted().emit(text);
     }
 
     /// Delete the selection, or `range` without one.
@@ -376,7 +406,7 @@ impl State {
             }
             KeyCode::Home => self.move_to(0, shift),
             KeyCode::End => self.move_to(len, shift),
-            KeyCode::Enter => self.events.submitted().emit(self.text.borrow().clone()),
+            KeyCode::Enter => self.submit(),
             KeyCode::Esc if self.selection().is_some() => self.move_to(at, false),
             _ => return None,
         }
@@ -445,6 +475,12 @@ impl Component for State {
     fn on_input(&self, event: &Event) -> Handled {
         if !self.enabled.get() {
             return Handled::No;
+        }
+        let intercept = self.intercept.borrow().clone();
+        if let Some(intercept) = intercept
+            && intercept(event) == Handled::Yes
+        {
+            return Handled::Yes;
         }
         if let Event::Paste(text) = event {
             self.insert(&text.replace(['\r', '\n'], " "));

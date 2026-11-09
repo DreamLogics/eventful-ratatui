@@ -251,11 +251,18 @@ mod events {
                 .with_receiver(&form)
                 .connect(Form::submit)
                 .scoped();
+            let extra = Button::new("X");
+            let _closure = extra
+                .clicked()
+                .with_receiver(&form)
+                .connect(move |f: &Form| f.log.borrow_mut().push("closure".into()))
+                .scoped();
             let mut ui = Harness::new(form.clone(), 10, 2);
             ui.key("tab").type_text("ab").key("tab").key("enter");
+            extra.click();
             // Delivery is queued; let the shard run it.
             futures_timer::Delay::new(std::time::Duration::from_millis(20)).await;
-            assert_eq!(*form.log.borrow(), ["name a", "name ab", "ok"]);
+            assert_eq!(*form.log.borrow(), ["name a", "name ab", "ok", "closure"]);
         });
     }
 }

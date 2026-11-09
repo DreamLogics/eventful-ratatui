@@ -52,33 +52,46 @@
 //! Delivery is queued, like all eventful-rs events. Read the current state
 //! synchronously when you need it right away: `name.value()`.
 mod button;
+mod choices;
+mod combo_box;
+mod dialog;
 mod events;
 mod key_hints;
 mod label;
 mod list;
 mod log_view;
+mod menu;
+mod palette;
 mod panel;
 mod progress;
 mod radio;
 mod scroll_view;
+mod select;
 mod stack;
 mod tabs;
 mod text_input;
+mod toast;
 mod toggle;
 
 pub use button::{Button, ButtonKind};
+pub use combo_box::ComboBox;
+pub use dialog::{Dialog, alert, confirm, prompt};
 pub use events::*;
 pub use key_hints::KeyHints;
 pub use label::Label;
 pub use list::List;
 pub use log_view::LogView;
+pub use menu::Menu;
+pub use palette::CommandPalette;
 pub use panel::Panel;
 pub use progress::{ProgressBar, Spinner};
 pub use radio::RadioGroup;
 pub use scroll_view::ScrollView;
+pub use select::Select;
 pub use stack::Stack;
 pub use tabs::Tabs;
 pub use text_input::TextInput;
+pub use toast::{Toast, ToastKind};
 pub use toggle::{Checkbox, Switch};
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, MouseButton, MouseEventKind};

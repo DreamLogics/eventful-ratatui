@@ -110,7 +110,7 @@ pub mod prelude {
     pub use crate::components::*;
     pub use crate::{
         Component, ComponentRef, Handled, Invalidate, KeyChord, Keymap, Quit, Tui, cursor, focus,
-        invalidate, key_events, mouse, overlay, quit, run_tui, theme,
+        invalidate, key_events, mouse, overlay, overlay::Placement, quit, run_tui, theme,
     };
     pub use crossterm::event::{
         Event as InputEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton,

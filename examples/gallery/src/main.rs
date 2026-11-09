@@ -1,9 +1,11 @@
 //! Every component on one screen. Run with `cargo run -p gallery`.
 //!
-//! Tab moves the focus, Ctrl+PageUp/PageDown switch pages, the mouse works
-//! everywhere, and Ctrl+C quits. What you do is logged on the Lists page.
+//! Tab moves the focus, Ctrl+PageUp/PageDown switch pages, Ctrl+P opens the
+//! command palette, the mouse works everywhere, and Ctrl+C quits. What you do
+//! is logged on the Lists page.
 use eventful_ratatui::prelude::*;
 use eventful_rs::*;
+use std::future::Future;
 
 declare_shard!(Ui, runtime = main);
 
@@ -18,8 +20,29 @@ struct Gallery {
     bar: ProgressBar,
     less: Button,
     more: Button,
+    overlay_buttons: [Button; 6],
     keys: Keymap<Gallery>,
 }
+
+/// What the overlay page's buttons and the palette can do.
+#[derive(Clone, Copy, Debug)]
+enum Demo {
+    Alert,
+    Confirm,
+    Prompt,
+    Menu,
+    Toast,
+    Palette,
+}
+
+const DEMOS: [(Demo, &str); 6] = [
+    (Demo::Alert, "Alert"),
+    (Demo::Confirm, "Confirm"),
+    (Demo::Prompt, "Prompt"),
+    (Demo::Menu, "Menu"),
+    (Demo::Toast, "Toast"),
+    (Demo::Palette, "Palette"),
+];
 
 impl Gallery {
     fn new() -> Self {
@@ -133,14 +156,28 @@ impl Gallery {
         }
         let scroll = Panel::new("Scroll").child(ScrollView::new(long_form));
 
+        let overlay_buttons = DEMOS.map(|(_, label)| Button::new(label));
+        let mut row = Stack::horizontal().spacing(2);
+        for button in &overlay_buttons {
+            row = row.fit(button.clone());
+        }
+        let overlays = Panel::new("Overlays").padding(Padding::uniform(1)).child(
+            Stack::vertical()
+                .spacing(1)
+                .fit(Label::new("Dialogs, menus, toasts and the command palette (ctrl+p).").muted())
+                .fit(row),
+        );
+
         let tabs = Tabs::new()
             .page("Controls", controls)
             .page("Lists", lists)
             .page("Progress", progress)
+            .page("Overlays", overlays)
             .page("Scroll", scroll);
         let hints = KeyHints::new()
             .hint("tab", "focus")
             .hint("ctrl+pgup/pgdn", "pages")
+            .hint("ctrl+p", "commands")
             .hint("ctrl+c", "quit");
         Self {
             tabs,
@@ -152,7 +189,10 @@ impl Gallery {
             bar,
             less,
             more,
-            keys: Keymap::new().bind("ctrl+c", |_| quit()),
+            overlay_buttons,
+            keys: Keymap::new()
+                .bind("ctrl+c", |_| quit())
+                .bind("ctrl+p", |g: &Gallery| g.demo(Demo::Palette)),
             events: Default::default(),
         }
     }
@@ -176,6 +216,59 @@ impl Gallery {
         let value = self.bar.value().unwrap_or(0.0) + delta;
         self.bar.set_value(Some(value));
     }
+    /// Run `task` on the UI shard, owned by the gallery.
+    fn spawn<F: Future<Output = ()> + 'static>(&self, task: impl FnOnce(ShardWeak<Self>) -> F) {
+        if let Ok(me) = ShardRc::try_from_ref(self) {
+            let _ = ShardRc::spawn_owned(&me, task);
+        }
+    }
+
+    fn demo(&self, demo: Demo) {
+        let log = self.log.clone();
+        let anchor = self.overlay_buttons[3].area().unwrap_or_default();
+        self.spawn(move |_| async move {
+            let outcome = match demo {
+                Demo::Alert => {
+                    alert("About", "eventful-ratatui component gallery.").await;
+                    "alert closed".to_owned()
+                }
+                Demo::Confirm => {
+                    let ok = confirm("Delete", "Delete all 3 files? This cannot be undone.").await;
+                    format!("confirmed: {ok}")
+                }
+                Demo::Prompt => match prompt("Rename", "New name:", "untitled").await {
+                    Some(name) => format!("renamed to {name:?}"),
+                    None => "rename cancelled".to_owned(),
+                },
+                Demo::Menu => {
+                    let picked = Menu::new()
+                        .item_with_hint("cut", "Cut", "ctrl+x")
+                        .item_with_hint("copy", "Copy", "ctrl+c")
+                        .item_with_hint("paste", "Paste", "ctrl+v")
+                        .separator()
+                        .disabled_item("undo", "Undo")
+                        .item("select all", "Select all")
+                        .show(Placement::Below(anchor))
+                        .await;
+                    format!("menu: {picked:?}")
+                }
+                Demo::Toast => {
+                    Toast::success("Saved!").show();
+                    Toast::warning("Disk 91% full").show();
+                    "toasts shown".to_owned()
+                }
+                Demo::Palette => {
+                    let mut palette = CommandPalette::new();
+                    for (demo, label) in DEMOS {
+                        palette = palette.command(demo, format!("Show {label}"));
+                    }
+                    format!("palette: {:?}", palette.show().await)
+                }
+            };
+            log.push(outcome);
+        });
+    }
+
     fn less(&self) {
         self.nudge(-0.1);
     }
@@ -236,6 +329,17 @@ async fn main() -> eventful_ratatui::Result<()> {
         .with_receiver(&gallery)
         .connect(Gallery::more)
         .scoped();
+    let _demos: Vec<_> = DEMOS
+        .iter()
+        .zip(&gallery.overlay_buttons)
+        .map(|(&(demo, _), button)| {
+            button
+                .clicked()
+                .with_receiver(&gallery)
+                .connect(move |g: &Gallery| g.demo(demo))
+                .scoped()
+        })
+        .collect();
     gallery.name.focus();
     Tui::new().mouse(true).run(&gallery).await
 }
