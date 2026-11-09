@@ -1,5 +1,6 @@
 //! Worker progress shown as a list and a gauge.
-//! Run with `cargo run -p dashboard`; `r` imports again, `q` quits.
+//! Run with `cargo run -p dashboard`; `r` imports again, `q` quits. Click an
+//! item or scroll to select.
 use eventful_ratatui::prelude::*;
 use eventful_rs::*;
 use std::cell::{Cell, RefCell};
@@ -12,6 +13,8 @@ declare_shard!(Ui, runtime = main);
 struct Dashboard {
     items: RefCell<Vec<String>>,
     list: RefCell<ListState>,
+    /// Where the list items were drawn, for clicks.
+    list_rows: Cell<Rect>,
     total: Cell<usize>,
     running: Cell<bool>,
     importer: ShardRcHandle<Importer>,
@@ -42,6 +45,26 @@ impl Dashboard {
         f(&mut self.list.borrow_mut());
         self.ui.invalidate();
     }
+    /// Select the item drawn at `row`, if any.
+    fn click(&self, row: u16) {
+        let rows = self.list_rows.get();
+        if !(rows.y..rows.bottom()).contains(&row) {
+            return;
+        }
+        let index = self.list.borrow().offset() + usize::from(row - rows.y);
+        if index < self.items.borrow().len() {
+            self.select(|list| list.select(Some(index)));
+        }
+    }
+    fn on_mouse(&self, mouse: &MouseEvent) -> Handled {
+        match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left) => self.click(mouse.row),
+            MouseEventKind::ScrollDown => self.select(ListState::select_next),
+            MouseEventKind::ScrollUp => self.select(ListState::select_previous),
+            _ => return Handled::No,
+        }
+        Handled::Yes
+    }
     fn restart(&self) {
         if !self.running.get() {
             self.importer.start();
@@ -59,6 +82,7 @@ impl Component for Dashboard {
         .areas(area);
 
         let items = self.items.borrow();
+        self.list_rows.set(list_area.inner(Margin::new(1, 1)));
         let list = List::new(items.iter().map(String::as_str))
             .block(Block::bordered().title(" Imported "))
             .highlight_symbol("> ")
@@ -79,14 +103,17 @@ impl Component for Dashboard {
             .render(gauge_area, buf);
 
         let help = if self.running.get() {
-            "j/k: select  q: quit"
+            "j/k, click: select  q: quit"
         } else {
-            "j/k: select  r: import again  q: quit"
+            "j/k, click: select  r: import again  q: quit"
         };
         Line::from(help).dim().render(help_area, buf);
     }
     fn on_input(&self, event: &InputEvent) -> Handled {
-        self.keys.dispatch(self, event)
+        match event {
+            InputEvent::Mouse(mouse) => self.on_mouse(mouse),
+            _ => self.keys.dispatch(self, event),
+        }
     }
 }
 
@@ -96,6 +123,7 @@ async fn main() -> eventful_ratatui::Result<()> {
     let dash = Dashboard::bind_local(Dashboard {
         items: RefCell::default(),
         list: RefCell::default(),
+        list_rows: Cell::default(),
         total: Cell::new(0),
         running: Cell::new(false),
         importer: importer.clone(),
@@ -112,5 +140,5 @@ async fn main() -> eventful_ratatui::Result<()> {
     })?;
     let _subscription = importer.events().role::<()>().connect(&dash).scoped();
     importer.start();
-    run_tui(&dash).await
+    Tui::new().mouse(true).run(&dash).await
 }

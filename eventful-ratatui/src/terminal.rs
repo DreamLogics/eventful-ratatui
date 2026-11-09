@@ -16,6 +16,7 @@
 //! usual.
 use crossterm::{
     cursor::Show,
+    event::{DisableMouseCapture, EnableMouseCapture},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -78,6 +79,15 @@ impl TerminalGuard {
         })
     }
 
+    /// Report mouse events. Capture ends when the guard restores the
+    /// terminal.
+    ///
+    /// # Errors
+    /// Fails if the terminal cannot be written to.
+    pub fn capture_mouse(&mut self) -> io::Result<()> {
+        execute!(stdout(), EnableMouseCapture)
+    }
+
     /// The terminal to draw to.
     pub fn terminal(&mut self) -> &mut DefaultTerminal {
         &mut self.terminal
@@ -114,11 +124,12 @@ impl Drop for Active {
     }
 }
 
-/// Leave raw mode and the alternate screen, and show the cursor.
+/// Leave raw mode and the alternate screen, release the mouse and show the
+/// cursor.
 fn restore() -> io::Result<()> {
     // Raw mode first: it has more side effects than the alternate screen.
     disable_raw_mode()?;
-    execute!(stdout(), LeaveAlternateScreen, Show)
+    execute!(stdout(), DisableMouseCapture, LeaveAlternateScreen, Show)
 }
 
 /// Install the panic hook and eventful-rs panic reporter once per process.

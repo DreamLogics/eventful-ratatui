@@ -1,4 +1,5 @@
 //! The [`Component`] trait implemented by UI values on the main shard.
+use crate::mouse;
 use crossterm::event::Event;
 use ratatui_core::{buffer::Buffer, layout::Rect};
 
@@ -46,8 +47,10 @@ impl<C: Component + ?Sized> Component for Box<C> {
     }
 }
 
-impl<C: Component + ?Sized> Component for std::rc::Rc<C> {
+/// Records the component for mouse hit-testing, see [`crate::mouse`].
+impl<C: Component + ?Sized + 'static> Component for std::rc::Rc<C> {
     fn render(&self, area: Rect, buf: &mut Buffer) {
+        let _hit = mouse::record(area, mouse::Handle::of(self), || self.into());
         (**self).render(area, buf);
     }
     fn on_input(&self, event: &Event) -> Handled {
@@ -55,11 +58,13 @@ impl<C: Component + ?Sized> Component for std::rc::Rc<C> {
     }
 }
 
+/// Records the component for mouse hit-testing, see [`crate::mouse`].
 impl<C> Component for eventful_rs::ShardRc<C>
 where
-    C: Component + eventful_rs::Eventful + eventful_rs::HasEvents<C::EventSetType>,
+    C: Component + eventful_rs::Eventful + eventful_rs::HasEvents<C::EventSetType> + 'static,
 {
     fn render(&self, area: Rect, buf: &mut Buffer) {
+        let _hit = mouse::record(area, mouse::Handle::of(self), || self.into());
         (**self).render(area, buf);
     }
     fn on_input(&self, event: &Event) -> Handled {

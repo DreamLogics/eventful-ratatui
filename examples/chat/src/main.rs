@@ -1,5 +1,5 @@
 //! A chat client: a Tokio network worker, a message list and an input box.
-//! Tab switches focus; Esc or Ctrl+C quits.
+//! Tab or a click switches focus, the wheel scrolls; Esc or Ctrl+C quits.
 //!
 //! Run with `cargo run -p chat` to talk to a local bot, or
 //! `cargo run -p chat -- HOST:PORT` for any line-based server (`nc -l 7000`).
@@ -37,15 +37,8 @@ struct Messages {
 
 impl Messages {
     fn new() -> Self {
-        let up = |m: &Messages, n: usize| {
-            let max = m.lines.borrow().len().saturating_sub(m.height.get());
-            m.scroll.set((m.scroll.get() + n).min(max));
-            m.ui.invalidate();
-        };
-        let down = |m: &Messages, n: usize| {
-            m.scroll.set(m.scroll.get().saturating_sub(n));
-            m.ui.invalidate();
-        };
+        let up = Messages::scroll_up;
+        let down = Messages::scroll_down;
         Self {
             lines: RefCell::default(),
             scroll: Cell::new(0),
@@ -63,6 +56,16 @@ impl Messages {
                 .bind("G", move |m: &Messages| down(m, usize::MAX)),
             events: Default::default(),
         }
+    }
+
+    fn scroll_up(&self, n: usize) {
+        let max = self.lines.borrow().len().saturating_sub(self.height.get());
+        self.scroll.set((self.scroll.get() + n).min(max));
+        self.ui.invalidate();
+    }
+    fn scroll_down(&self, n: usize) {
+        self.scroll.set(self.scroll.get().saturating_sub(n));
+        self.ui.invalidate();
     }
 
     fn push(&self, line: Line<'static>) {
@@ -101,7 +104,16 @@ impl Component for Messages {
         Paragraph::new(lines[start..end].to_vec()).render(inner, buf);
     }
     fn on_input(&self, event: &InputEvent) -> Handled {
-        self.keys.dispatch(self, event)
+        // Clicks bubble up to the app, which moves the focus.
+        match event {
+            InputEvent::Mouse(mouse) => match mouse.kind {
+                MouseEventKind::ScrollUp => self.scroll_up(3),
+                MouseEventKind::ScrollDown => self.scroll_down(3),
+                _ => return Handled::No,
+            },
+            _ => return self.keys.dispatch(self, event),
+        }
+        Handled::Yes
     }
 }
 
@@ -194,6 +206,20 @@ impl App {
         self.messages.focused.set(!to_input);
     }
 
+    /// Focus the child that was clicked.
+    fn on_mouse(&self, mouse: &MouseEvent) -> Handled {
+        if mouse.kind != MouseEventKind::Down(MouseButton::Left) {
+            return Handled::No;
+        }
+        let on_input = mouse::is_hit(&*self.input, mouse);
+        if on_input != self.focus.is_focused(&*self.input)
+            && (on_input || mouse::is_hit(&*self.messages, mouse))
+        {
+            self.focus_next();
+        }
+        Handled::Yes
+    }
+
     fn set_status(&self, status: Line<'static>) {
         *self.status.borrow_mut() = status;
         self.ui.invalidate();
@@ -219,12 +245,15 @@ impl Component for App {
         .areas(area);
         self.messages.render(messages, buf);
         self.input.render(input, buf);
-        let help = Span::from("  tab: switch focus  esc: quit").dim();
+        let help = Span::from("  tab, click: switch focus  esc: quit").dim();
         let mut line = self.status.borrow().clone();
         line.push_span(help);
         line.render(status, buf);
     }
     fn on_input(&self, event: &InputEvent) -> Handled {
+        if let InputEvent::Mouse(mouse) = event {
+            return self.on_mouse(mouse);
+        }
         match self.focus.dispatch(event) {
             Handled::No => self.keys.dispatch(self, event),
             handled => handled,
@@ -253,5 +282,5 @@ async fn main() -> eventful_ratatui::Result<()> {
         client.events().role::<()>().connect(&app).scoped(),
     ];
     client.open(addr);
-    run_tui(&app).await
+    Tui::new().mouse(true).run(&app).await
 }

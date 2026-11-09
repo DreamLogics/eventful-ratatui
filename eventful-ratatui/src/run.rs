@@ -3,7 +3,7 @@
 //! The loop is meant to be the `#[sharded_main]` future, so it takes turns
 //! with queued calls and event handlers on the main shard. It waits for input,
 //! a redraw request or a tick, and draws at most once per frame interval.
-use crate::{Component, Error, Result, TerminalGuard, invalidate};
+use crate::{Component, Error, Result, TerminalGuard, invalidate, mouse};
 use crossterm::event::{Event, EventStream};
 use futures::{FutureExt, Stream, StreamExt, future::poll_fn, task::AtomicWaker};
 use futures_timer::Delay;
@@ -23,7 +23,7 @@ use std::{
 ///
 /// # Errors
 /// Fails if the terminal cannot be set up, input fails, or drawing fails.
-pub async fn run_tui<C: Component + ?Sized>(root: &C) -> Result<()> {
+pub async fn run_tui<C: Component + ?Sized + 'static>(root: &C) -> Result<()> {
     Tui::new().run(root).await
 }
 
@@ -34,6 +34,8 @@ pub struct Tui {
     frame_interval: Duration,
     /// Time between ticks, if any.
     tick: Option<Duration>,
+    /// Route mouse events by hit-testing.
+    mouse: bool,
 }
 
 impl Default for Tui {
@@ -41,6 +43,7 @@ impl Default for Tui {
         Self {
             frame_interval: Duration::from_secs(1) / 60,
             tick: None,
+            mouse: false,
         }
     }
 }
@@ -69,13 +72,24 @@ impl Tui {
         self
     }
 
+    /// Capture the mouse and route its events to the component under the
+    /// pointer; see [`crate::mouse`]. Off by default, because capturing the
+    /// mouse disables the terminal's own text selection.
+    pub fn mouse(mut self, enabled: bool) -> Self {
+        self.mouse = enabled;
+        self
+    }
+
     /// Take over the terminal and run `root` until [`quit`] is called or
     /// input ends. The terminal is restored on return and on panic.
     ///
     /// # Errors
     /// Fails if the terminal cannot be set up, input fails, or drawing fails.
-    pub async fn run<C: Component + ?Sized>(self, root: &C) -> Result<()> {
+    pub async fn run<C: Component + ?Sized + 'static>(self, root: &C) -> Result<()> {
         let mut guard = TerminalGuard::enter()?;
+        if self.mouse {
+            guard.capture_mouse()?;
+        }
         self.run_with(guard.terminal(), EventStream::new(), root)
             .await
     }
@@ -86,7 +100,8 @@ impl Tui {
     ///
     /// Returns when [`quit`] is called, or when `input` ends, after drawing
     /// any pending frame. Input is passed to `root`, except resizes, which
-    /// trigger a redraw.
+    /// trigger a redraw, and mouse events if [`mouse`](Self::mouse) routing
+    /// is on.
     ///
     /// # Errors
     /// Fails if `input` yields an error or drawing fails.
@@ -100,9 +115,11 @@ impl Tui {
         B: Backend,
         B::Error: Send + Sync + 'static,
         S: Stream<Item = io::Result<Event>> + Unpin,
-        C: Component + ?Sized,
+        C: Component + ?Sized + 'static,
     {
         let quit = QuitScope::enter();
+        let _mouse = self.mouse.then(mouse::Session::start);
+        let mut router = mouse::Router::default();
         let mut tick = self.tick.map(|interval| (interval, Delay::new(interval)));
         let mut last_frame: Option<Instant> = None;
         let mut next_frame: Option<Delay> = None;
@@ -147,6 +164,9 @@ impl Tui {
                     next_frame = None;
                 }
                 Wake::Input(Some(Ok(Event::Resize(..)))) | Wake::Tick => invalidate::mark(),
+                Wake::Input(Some(Ok(event @ Event::Mouse(mouse)))) if self.mouse => {
+                    router.dispatch(root, &event, &mouse);
+                }
                 Wake::Input(Some(Ok(event))) => {
                     root.on_input(&event);
                 }
@@ -178,9 +198,11 @@ where
     C: Component + ?Sized,
 {
     invalidate::clear();
+    mouse::begin_frame();
     terminal
         .draw(|frame| root.render(frame.area(), frame.buffer_mut()))
         .map_err(|err| Error::Backend(Box::new(err)))?;
+    mouse::end_frame();
     Ok(())
 }
 

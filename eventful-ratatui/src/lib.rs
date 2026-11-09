@@ -17,6 +17,7 @@ mod error;
 pub mod focus;
 pub mod invalidate;
 pub mod keymap;
+pub mod mouse;
 pub mod run;
 pub mod terminal;
 
@@ -41,10 +42,11 @@ pub use terminal::TerminalGuard;
 pub mod prelude {
     pub use crate::{
         Component, ComponentRef, FocusChain, Handled, Invalidate, KeyChord, Keymap, Quit, Tui,
-        quit, run_tui,
+        mouse, quit, run_tui,
     };
     pub use crossterm::event::{
-        Event as InputEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
+        Event as InputEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton,
+        MouseEvent, MouseEventKind,
     };
     pub use ratatui::prelude::*;
     pub use ratatui::widgets::*;

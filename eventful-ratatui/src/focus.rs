@@ -19,16 +19,16 @@ where
     C: Component + Eventful + HasEvents<C::EventSetType>,
 {
     fn on_input(&self, event: &Event) -> Option<Handled> {
-        self.upgrade().map(|component| component.on_input(event))
+        self.upgrade().map(|component| (*component).on_input(event))
     }
     fn is_alive(&self) -> bool {
         self.upgrade().is_some()
     }
 }
 
-impl<C: Component> Target for std::rc::Weak<C> {
+impl<C: Component + ?Sized> Target for std::rc::Weak<C> {
     fn on_input(&self, event: &Event) -> Option<Handled> {
-        self.upgrade().map(|component| component.on_input(event))
+        self.upgrade().map(|component| (*component).on_input(event))
     }
     fn is_alive(&self) -> bool {
         self.strong_count() > 0
@@ -48,8 +48,13 @@ pub struct ComponentRef {
 
 impl ComponentRef {
     /// Whether this refers to `component`, which must still be alive.
-    pub fn refers_to<C>(&self, component: &C) -> bool {
-        std::ptr::eq(self.addr, (component as *const C).cast()) && self.target.is_alive()
+    pub fn refers_to<C: ?Sized>(&self, component: &C) -> bool {
+        std::ptr::eq(self.addr, std::ptr::from_ref(component).cast()) && self.target.is_alive()
+    }
+
+    /// Pass `event` to the component, if it is still alive.
+    pub(crate) fn offer(&self, event: &Event) -> Option<Handled> {
+        self.target.on_input(event)
     }
 }
 
@@ -65,7 +70,7 @@ where
     }
 }
 
-impl<C: Component + 'static> From<&Rc<C>> for ComponentRef {
+impl<C: Component + ?Sized + 'static> From<&Rc<C>> for ComponentRef {
     fn from(component: &Rc<C>) -> Self {
         Self {
             target: Rc::new(Rc::downgrade(component)),
@@ -153,7 +158,7 @@ impl FocusChain {
     }
 
     /// Whether `component` is the focused leaf.
-    pub fn is_focused<C>(&self, component: &C) -> bool {
+    pub fn is_focused<C: ?Sized>(&self, component: &C) -> bool {
         self.path
             .borrow()
             .last()
@@ -161,7 +166,7 @@ impl FocusChain {
     }
 
     /// Whether `component` is on the focused path.
-    pub fn contains<C>(&self, component: &C) -> bool {
+    pub fn contains<C: ?Sized>(&self, component: &C) -> bool {
         self.path
             .borrow()
             .iter()
@@ -171,7 +176,13 @@ impl FocusChain {
     /// Offer `event` to the focused leaf, then to each component above it,
     /// until one handles it. Collected components are skipped. Handlers may
     /// change the focus; this event still follows the path it started on.
+    ///
+    /// Mouse events are not dispatched: the pointer picks their target, see
+    /// [`crate::mouse`].
     pub fn dispatch(&self, event: &Event) -> Handled {
+        if matches!(event, Event::Mouse(_)) {
+            return Handled::No;
+        }
         let path = self.path.borrow().clone();
         for component in path.iter().rev() {
             if component.target.on_input(event) == Some(Handled::Yes) {
