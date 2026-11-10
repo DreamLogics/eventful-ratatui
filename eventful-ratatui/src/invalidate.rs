@@ -1,6 +1,36 @@
-//! [`Invalidate`]: a dirty flag plus waker shared by everything on the UI
-//! thread. `invalidate()` is cheap and coalesces any number of calls into one
-//! frame.
+//! Redraw requests: a dirty flag plus waker shared by everything on the UI
+//! thread.
+//!
+//! [`invalidate()`] is cheap and coalesces any number of calls into one
+//! frame; [`after`] schedules one for later, for animations and timeouts.
+//! [`Invalidate`] is a handle to the same flag for code that prefers holding
+//! one. The loop draws only when asked, so call [`invalidate()`] whenever
+//! state that `render` reads changes. Library components, focus changes and
+//! hover changes request their own redraws.
+//!
+//! ```
+//! use eventful_ratatui::{prelude::*, testing::Harness};
+//! use std::{cell::Cell, time::Duration};
+//!
+//! /// Blinks on each timer tick.
+//! struct Blink(Cell<bool>);
+//! impl Component for Blink {
+//!     fn render(&self, area: Rect, buf: &mut Buffer) {
+//!         let on = !self.0.get();
+//!         self.0.set(on);
+//!         if on {
+//!             "*".render(area, buf);
+//!         }
+//!         // Ask for the next frame.
+//!         invalidate::after(Duration::from_millis(500));
+//!     }
+//! }
+//!
+//! let mut ui = Harness::new(Blink(Cell::new(false)), 1, 1);
+//! assert_eq!(ui.lines(), ["*"]);
+//! ui.fire_timers();
+//! assert_eq!(ui.lines(), [""]);
+//! ```
 use futures::FutureExt;
 use futures_timer::Delay;
 use std::{
@@ -56,6 +86,10 @@ impl Invalidate {
 }
 
 /// Request a redraw from the loop running on this thread.
+///
+/// Any number of calls before the next frame result in one frame. Calls
+/// during `render` schedule another frame after it. See the
+/// [module docs](self).
 pub fn invalidate() {
     mark();
 }
@@ -63,6 +97,10 @@ pub fn invalidate() {
 /// Request a redraw once `delay` has passed, for animations and timeouts:
 /// a spinner asks for its next frame while rendering. Requests coalesce; the
 /// loop keeps only the earliest.
+///
+/// The timer is one-shot: ask again from `render` to keep animating. In
+/// tests, [`Harness::fire_timers`](crate::testing::Harness::fire_timers)
+/// fires it at once. See the [module docs](self) for an example.
 pub fn after(delay: Duration) {
     let at = Instant::now() + delay;
     FRAME.with(|frame| {

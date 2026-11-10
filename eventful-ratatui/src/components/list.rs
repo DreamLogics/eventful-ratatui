@@ -38,6 +38,28 @@ handle! {
     /// A click selects, a double click activates, and the wheel scrolls.
     /// Emits [`selected`](super::SelectEventsSignalsExt::selected) and
     /// [`activated`](super::SelectEventsSignalsExt::activated).
+    ///
+    /// The selected item is drawn highlighted with a bar at its left edge, and
+    /// a scrollbar appears when the items do not fit. Moving the selection
+    /// scrolls it into view; the wheel scrolls the view only.
+    ///
+    /// ```
+    /// use eventful_ratatui::{components::List, testing::Harness};
+    ///
+    /// let fruit = List::new(["apple", "banana", "blueberry", "cherry"]);
+    /// let mut ui = Harness::new(fruit.clone(), 12, 4);
+    /// assert_eq!(fruit.selection(), None);
+    ///
+    /// // The first Down selects the first item.
+    /// ui.key("tab").key("down");
+    /// assert_eq!(fruit.selection(), Some(0));
+    /// assert!(ui.lines()[0].starts_with("▌apple"));
+    /// // Type-ahead: a repeated letter cycles through its items.
+    /// ui.type_text("b").type_text("b");
+    /// assert_eq!(fruit.selection(), Some(2));
+    /// ui.click(1, 3);
+    /// assert_eq!(fruit.selection(), Some(3));
+    /// ```
     List(State), events = (SelectEventsEventSet, SelectEventsSignalsExt)
 }
 
@@ -63,7 +85,8 @@ pub struct State {
 }
 
 impl List {
-    /// A list of `items`, nothing selected.
+    /// A list of `items`, nothing selected. Items are lines, so they can be
+    /// styled: `List::new([Line::from("ok").green()])`.
     pub fn new<I: IntoIterator<Item = L>, L: Into<Line<'static>>>(items: I) -> Self {
         Self(Rc::new(State {
             items: RefCell::new(items.into_iter().map(Into::into).collect()),
@@ -80,17 +103,21 @@ impl List {
             events: SelectEventsEmissions::default(),
         }))
     }
-    /// Let Space mark several items; see [`marked`](Self::marked).
+    /// Let Space mark and unmark the selected item, so several can be picked;
+    /// see [`marked`](Self::marked). Each item gets a checkbox showing its
+    /// mark. Marking does not emit an event; read the marks when needed.
     pub fn multi_select(self) -> Self {
         self.0.multi.set(true);
         self
     }
-    /// Use j/k/g/G for movement instead of type-ahead search.
+    /// Use j/k for down and up and g/G for the first and last item, instead
+    /// of type-ahead search. The arrow keys keep working.
     pub fn vim_keys(self) -> Self {
         self.0.vim.set(true);
         self
     }
-    /// Start with `index` selected.
+    /// Start with `index` selected; ignored if out of range. See
+    /// [`set_selection`](Self::set_selection).
     pub fn with_selection(self, index: usize) -> Self {
         self.set_selection(Some(index));
         self
@@ -109,7 +136,7 @@ impl List {
         self.0.marked.borrow_mut().clear();
         invalidate::invalidate();
     }
-    /// Append an item.
+    /// Append an item. The selection and scroll position stay where they are.
     pub fn push(&self, item: impl Into<Line<'static>>) {
         self.0.items.borrow_mut().push(item.into());
         invalidate::invalidate();
@@ -122,22 +149,26 @@ impl List {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
-    /// The item at `index`.
+    /// The item at `index`, or `None` if out of range.
     pub fn item(&self, index: usize) -> Option<Line<'static>> {
         self.0.items.borrow().get(index).cloned()
     }
-    /// The selected index.
+    /// The selected index, if an item is selected. A new list has none until
+    /// the user moves or clicks, or [`set_selection`](Self::set_selection).
     pub fn selection(&self) -> Option<usize> {
         self.0.selected.get()
     }
-    /// Select `index` and scroll to it, without emitting `selected`.
+    /// Select `index` and scroll it into view at the next render, without
+    /// emitting `selected`. `None`, or an index out of range, clears the
+    /// selection.
     pub fn set_selection(&self, index: Option<usize>) {
         let len = self.len();
         self.0.selected.set(index.filter(|i| *i < len));
         self.0.reveal.set(true);
         invalidate::invalidate();
     }
-    /// The marked indices, in order, in multi-select mode.
+    /// The marked indices, in ascending order. Always empty unless
+    /// [`multi_select`](Self::multi_select) is on.
     pub fn marked(&self) -> Vec<usize> {
         self.0.marked.borrow().iter().copied().collect()
     }
@@ -145,7 +176,10 @@ impl List {
     pub fn is_enabled(&self) -> bool {
         self.0.enabled.get()
     }
-    /// Enable or disable it.
+    /// Enable or disable it. A disabled list is drawn in the disabled style,
+    /// skipped by Tab and ignores keys and clicks.
+    /// Disabling it while it has focus moves focus to the next focusable
+    /// component; see [`focus`](crate::focus).
     pub fn set_enabled(&self, enabled: bool) {
         self.0.enabled.set(enabled);
         invalidate::invalidate();

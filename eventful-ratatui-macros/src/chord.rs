@@ -91,6 +91,11 @@ impl Chord {
                 },
             },
         };
+        // Next to ctrl, alt and the like, a letter's case is ignored.
+        let code = match code {
+            Code::Char(c) if modifiers & !SHIFT != 0 => Code::Char(c.to_ascii_lowercase()),
+            code => code,
+        };
         Ok(Self::new(code, modifiers))
     }
 
@@ -124,6 +129,9 @@ mod tests {
     fn normalizes_like_the_runtime() {
         assert_eq!(Chord::parse("J"), Chord::parse("shift+j"));
         assert_eq!(Chord::parse("shift+tab"), Chord::parse("backtab"));
+        assert_eq!(Chord::parse("Ctrl+S"), Chord::parse("ctrl+s"));
+        assert_ne!(Chord::parse("ctrl+shift+s"), Chord::parse("ctrl+s"));
+        assert_eq!(Chord::parse("ctrl+shift+s"), Chord::parse("shift+ctrl+S"));
         assert_eq!(Chord::parse("ctrl++"), Ok(Chord::new(Code::Char('+'), 2)));
         assert_eq!(Chord::parse("ctrl+x+"), Err("unknown modifier"));
         assert_eq!(Chord::parse("f25"), Err("unknown key"));

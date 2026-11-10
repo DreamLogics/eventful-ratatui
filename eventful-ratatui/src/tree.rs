@@ -11,6 +11,8 @@ use std::{any::TypeId, cell::RefCell, mem};
 pub(crate) struct Handle(*const (), TypeId);
 
 impl Handle {
+    /// The handle `value` is: its address plus its type, since an `Rc` and
+    /// the `ShardRc` around the same value share an address.
     pub(crate) fn of<T: ?Sized + 'static>(value: &T) -> Self {
         Self(std::ptr::from_ref(value).cast(), TypeId::of::<T>())
     }

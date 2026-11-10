@@ -92,24 +92,30 @@ impl Range {
 macro_rules! range_api {
     ($name:ident) => {
         impl $name {
-            /// The value.
+            /// The current value, always within the range and on the step
+            /// grid.
             pub fn value(&self) -> f64 {
                 self.0.value.get()
             }
-            /// Set the value, clamped and snapped, without emitting `changed`.
+            /// Set the value, clamped to the range and snapped to the nearest
+            /// step from the minimum, without emitting `changed`.
             pub fn set_value(&self, value: f64) {
                 self.0.set(value, false);
             }
-            /// Start at `value`.
+            /// Start at `value`, clamped and snapped like
+            /// [`set_value`](Self::set_value).
             pub fn with_value(self, value: f64) -> Self {
                 self.set_value(value);
                 self
             }
-            /// Whether it can be changed and focused.
+            /// Whether it can be changed and focused; enabled by default.
             pub fn is_enabled(&self) -> bool {
                 self.0.enabled.get()
             }
-            /// Enable or disable it.
+            /// Enable or disable it. Disabled, it draws dimmed, ignores
+            /// input, and Tab skips it.
+            /// Disabling it while it has focus moves focus to the next focusable
+            /// component; see [`focus`](crate::focus).
             pub fn set_enabled(&self, enabled: bool) {
                 self.0.enabled.set(enabled);
                 invalidate::invalidate();
@@ -122,12 +128,33 @@ handle! {
     /// A horizontal slider: `━━━━━━●───── 42`. Left/Right move a step,
     /// PageUp/PageDown ten, Home/End to the ends; click or drag to set.
     /// Emits [`changed`](super::ValueEventsSignalsExt::changed).
+    ///
+    /// The value shows at the right, with as many decimals as the step
+    /// needs; the track fills the rest of the row.
+    ///
+    /// ```
+    /// use eventful_ratatui::{components::Slider, testing::Harness};
+    ///
+    /// let volume = Slider::new(0.0, 100.0, 5.0).with_value(50.0);
+    /// let mut ui = Harness::new(volume.clone(), 20, 1);
+    /// assert_eq!(ui.lines(), ["━━━━━━━━●━━━━━━━  50"]);
+    ///
+    /// ui.key("tab").key("right");
+    /// assert_eq!(volume.value(), 55.0);
+    /// ui.key("pageup");
+    /// assert_eq!(volume.value(), 100.0, "clamped to the maximum");
+    /// ui.key("home");
+    /// assert_eq!(volume.value(), 0.0);
+    /// ```
     Slider(Range), events = (ValueEventsEventSet, ValueEventsSignalsExt)
 }
 range_api!(Slider);
 
 impl Slider {
     /// A slider from `min` to `max` in steps of `step`, at `min`.
+    ///
+    /// A `max` below `min` is raised to `min`, and a negative `step` is
+    /// made positive.
     pub fn new(min: f64, max: f64, step: f64) -> Self {
         Self(Rc::new(Range::new(min, max, step)))
     }
@@ -234,6 +261,19 @@ handle! {
     /// A number with step buttons: `‹ 42 ›`. Up/Down (or Left/Right) step,
     /// PageUp/PageDown ten steps, Home/End to the ends; click the arrows or
     /// use the wheel. Emits [`changed`](super::ValueEventsSignalsExt::changed).
+    ///
+    /// ```
+    /// use eventful_ratatui::{components::SpinBox, testing::Harness};
+    ///
+    /// let copies = SpinBox::new(1.0, 99.0, 1.0);
+    /// let mut ui = Harness::new(copies.clone(), 10, 1);
+    /// assert_eq!(ui.lines(), ["‹  1 ›"]);
+    ///
+    /// ui.key("tab").key("up").key("up");
+    /// assert_eq!(copies.value(), 3.0);
+    /// ui.key("end");
+    /// assert_eq!(copies.value(), 99.0);
+    /// ```
     SpinBox(SpinState), events = (ValueEventsEventSet, ValueEventsSignalsExt)
 }
 range_api!(SpinBox);
@@ -250,6 +290,9 @@ impl std::ops::Deref for SpinState {
 
 impl SpinBox {
     /// A spin box from `min` to `max` in steps of `step`, at `min`.
+    ///
+    /// A `max` below `min` is raised to `min`, and a negative `step` is
+    /// made positive.
     pub fn new(min: f64, max: f64, step: f64) -> Self {
         Self(Rc::new(SpinState(Range::new(min, max, step))))
     }

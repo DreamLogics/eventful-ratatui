@@ -1,5 +1,58 @@
 //! The [`Component`] trait implemented by UI values on the main shard, and
 //! [`ComponentRef`], a weak type-erased reference to one.
+//!
+//! A component draws itself with ratatui in [`render`](Component::render) and
+//! reacts to keys and the mouse in [`on_input`](Component::on_input). Both
+//! take `&self`: keep changing state in `Cell`s and `RefCell`s, and call
+//! [`invalidate`](crate::invalidate::invalidate) after changing it so the
+//! loop draws a new frame.
+//!
+//! ```
+//! use eventful_ratatui::{prelude::*, testing::Harness};
+//! use std::{cell::Cell, rc::Rc};
+//!
+//! /// A row of stars; `+` adds one.
+//! struct Stars(Cell<usize>);
+//! impl Component for Stars {
+//!     fn render(&self, area: Rect, buf: &mut Buffer) {
+//!         "*".repeat(self.0.get()).render(area, buf);
+//!     }
+//!     fn on_input(&self, event: &InputEvent) -> Handled {
+//!         let InputEvent::Key(key) = event else { return Handled::No };
+//!         if key.code != KeyCode::Char('+') {
+//!             return Handled::No;
+//!         }
+//!         self.0.set(self.0.get() + 1);
+//!         invalidate::invalidate();
+//!         Handled::Yes
+//!     }
+//!     fn focusable(&self) -> bool {
+//!         true
+//!     }
+//! }
+//!
+//! /// Two rows of stars. Rendering them through an `Rc` puts them in the
+//! /// render tree, so Tab moves between them and keys reach the focused one.
+//! struct Rating {
+//!     top: Rc<Stars>,
+//!     bottom: Rc<Stars>,
+//! }
+//! impl Component for Rating {
+//!     fn render(&self, area: Rect, buf: &mut Buffer) {
+//!         let [top, bottom] = Layout::vertical([Constraint::Length(1); 2]).areas(area);
+//!         self.top.render(top, buf);
+//!         self.bottom.render(bottom, buf);
+//!     }
+//! }
+//!
+//! let rating = Rating {
+//!     top: Rc::new(Stars(Cell::new(1))),
+//!     bottom: Rc::new(Stars(Cell::new(0))),
+//! };
+//! let mut ui = Harness::new(rating, 5, 2);
+//! ui.key("tab").key("+").key("tab").key("+").key("+");
+//! assert_eq!(ui.lines(), ["**", "**"]);
+//! ```
 use crate::tree;
 use crossterm::event::Event;
 use eventful_rs::{Eventful, HasEvents, ShardRc, ShardWeak};
@@ -9,8 +62,20 @@ use ratatui_core::{
 };
 use std::{fmt, rc::Rc};
 
-/// Whether a component consumed an input event. Unhandled input bubbles up
-/// to the component's parents.
+/// Whether a component consumed an input event, returned from
+/// [`Component::on_input`].
+///
+/// Unhandled input bubbles up to the component's parents, then to the root;
+/// a Tab, `BackTab` or Esc nobody handles moves focus or closes the top
+/// overlay. Converts from `bool`, so a component can return
+/// `changed.into()`:
+///
+/// ```
+/// use eventful_ratatui::Handled;
+///
+/// assert_eq!(Handled::from(true), Handled::Yes);
+/// assert_eq!(Handled::from(false), Handled::No);
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Handled {
     /// The event was consumed; stop bubbling.
@@ -25,7 +90,12 @@ impl From<bool> for Handled {
 }
 
 /// A UI element rendered through `&self`, as ratatui recommends for widgets
-/// with interior mutability. Mutable state lives in `RefCell`s on the shard.
+/// with interior mutability.
+///
+/// Mutable state lives in `Cell`s and `RefCell`s on the shard; after
+/// changing it, call [`invalidate`](crate::invalidate::invalidate) to have
+/// the loop draw a new frame. Only [`render`](Self::render) is required.
+/// See the [module docs](self) for a complete example.
 ///
 /// Render children through an `Rc`, a [`ShardRc`] or a library component
 /// handle: those record the child in the frame's render tree, which gives it
@@ -33,12 +103,23 @@ impl From<bool> for Handled {
 /// reference draws fine but is invisible to input routing.
 pub trait Component {
     /// Draw into `buf` within `area`.
+    ///
+    /// Called every frame the component is on screen, so keep it free of
+    /// side effects other than requests like
+    /// [`cursor::show_at`](crate::cursor::show_at) or
+    /// [`invalidate::after`](crate::invalidate::after). Draw only inside
+    /// `area`; it may be empty.
     fn render(&self, area: Rect, buf: &mut Buffer);
     /// Handle an input event synchronously. The default ignores it.
     ///
     /// Keys go to the focused component first, then bubble up through the
     /// components that rendered it. Mouse events go to the component under
-    /// the pointer, then bubble the same way.
+    /// the pointer, then bubble the same way. Return [`Handled::Yes`] to stop
+    /// bubbling. Paste events arrive here too.
+    ///
+    /// Input is handled synchronously, between frames; call
+    /// [`invalidate`](crate::invalidate::invalidate) if the event changed
+    /// what is drawn.
     fn on_input(&self, _event: &Event) -> Handled {
         Handled::No
     }
@@ -49,6 +130,27 @@ pub trait Component {
     }
     /// The size the component would like within `available`, for overlays
     /// and containers that size to content. The default takes everything.
+    ///
+    /// Return at most `available`. Callers may still give a different size,
+    /// so `render` must cope with any area.
+    ///
+    /// ```
+    /// use eventful_ratatui::prelude::*;
+    ///
+    /// struct Hint(&'static str);
+    /// impl Component for Hint {
+    ///     fn render(&self, area: Rect, buf: &mut Buffer) {
+    ///         self.0.render(area, buf);
+    ///     }
+    ///     fn preferred_size(&self, available: Size) -> Size {
+    ///         let width = u16::try_from(self.0.len()).unwrap_or(u16::MAX);
+    ///         Size::new(width.min(available.width), available.height.min(1))
+    ///     }
+    /// }
+    ///
+    /// assert_eq!(Hint("hello").preferred_size(Size::new(80, 24)), Size::new(5, 1));
+    /// assert_eq!(Hint("hello").preferred_size(Size::new(3, 24)), Size::new(3, 1));
+    /// ```
     fn preferred_size(&self, available: Size) -> Size {
         available
     }
@@ -169,6 +271,36 @@ impl<C: Component + ?Sized> Target for std::rc::Weak<C> {
 
 /// A weak, type-erased reference to a component on this thread. It does not
 /// keep the component alive; input to a collected component is skipped.
+///
+/// [`focus::focused`](crate::focus::focused) returns one. Compare it with a
+/// component through [`refers_to`](Self::refers_to):
+///
+/// ```
+/// use eventful_ratatui::{prelude::*, testing::Harness};
+/// use std::rc::Rc;
+///
+/// struct Slot(u8);
+/// impl Component for Slot {
+///     fn render(&self, _: Rect, _: &mut Buffer) {}
+///     fn focusable(&self) -> bool {
+///         true
+///     }
+/// }
+/// struct Row(Rc<Slot>, Rc<Slot>);
+/// impl Component for Row {
+///     fn render(&self, area: Rect, buf: &mut Buffer) {
+///         let [a, b] = Layout::horizontal([Constraint::Fill(1); 2]).areas(area);
+///         self.0.render(a, buf);
+///         self.1.render(b, buf);
+///     }
+/// }
+///
+/// let mut ui = Harness::new(Row(Rc::new(Slot(0)), Rc::new(Slot(1))), 4, 1);
+/// ui.key("tab").key("tab");
+/// let focused = focus::focused().expect("Tab focused a slot");
+/// assert!(focused.refers_to(&*ui.root().1));
+/// assert!(!focused.refers_to(&*ui.root().0));
+/// ```
 #[derive(Clone)]
 pub struct ComponentRef {
     /// The component.
@@ -179,7 +311,11 @@ pub struct ComponentRef {
 
 impl ComponentRef {
     /// Whether this refers to `component`, which must still be alive. Pass
-    /// the component itself, not the `Rc` or `ShardRc` holding it.
+    /// the component itself, not the `Rc` or `ShardRc` holding it: inside
+    /// `render` or `on_input`, `self`.
+    ///
+    /// Identity is by address, so two zero-sized components can compare
+    /// equal; give a component a field if that matters.
     pub fn refers_to<C: ?Sized>(&self, component: &C) -> bool {
         self.is(addr_of(component)) && self.target.is_alive()
     }

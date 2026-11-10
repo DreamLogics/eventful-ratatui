@@ -1,4 +1,13 @@
 //! Input routing and drawing, shared by the loop and the test harness.
+//!
+//! [`Dispatcher`] is the one place that decides where an input event goes:
+//! keys to the focused path, then the root, then the built-in Tab, `BackTab`
+//! and Esc handling; mouse events through light dismiss, click to focus and
+//! capture to the path under the pointer. [`Dispatcher::draw`] renders a
+//! frame and finishes it for the render tree, focus and overlays. Keeping
+//! both here means [`crate::testing::Harness`] behaves exactly like
+//! [`crate::Tui::run_with`]. [`Session`] scopes the per-thread state both of
+//! them use to one run.
 use crate::{
     Component, Error, Handled, Result,
     component::ComponentRef,
@@ -18,6 +27,7 @@ pub(crate) struct Session {
 }
 
 impl Session {
+    /// Reset this thread's frame state and take ownership of it until drop.
     pub(crate) fn start() -> Self {
         invalidate::reset();
         let _ = cursor::take();
@@ -41,6 +51,7 @@ pub(crate) struct Dispatcher {
 }
 
 impl Dispatcher {
+    /// A dispatcher that routes mouse events by hit-testing if `mouse`.
     pub(crate) fn new(mouse: bool) -> Self {
         Self {
             mouse,
@@ -61,7 +72,7 @@ impl Dispatcher {
     }
 
     /// Keys and other non-mouse input: the focused path, then the scope root,
-    /// then the defaults for Tab, BackTab and Esc.
+    /// then the defaults for Tab, `BackTab` and Esc.
     fn key<C: Component + ?Sized + 'static>(&mut self, root: &C, event: &Event) {
         let scope = overlay::focus_scope();
         let path = focus::key_path(|layer| overlay::in_scope(layer, scope))

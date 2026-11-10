@@ -11,7 +11,9 @@ use std::time::Duration;
 /// as RGB.
 ///
 /// [`query`](Self::query) asks the terminal for them; the loop does so at
-/// startup and builds the built-in theme with [`Theme::from_terminal`].
+/// startup and builds the built-in theme with [`Theme::from_terminal`]. Build
+/// one with [`new`](Self::new) to preview the built-in theme for another
+/// terminal's color scheme.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct TerminalColors {
@@ -41,7 +43,7 @@ impl Default for TerminalColors {
 }
 
 impl TerminalColors {
-    /// Colors from their parts.
+    /// Colors from their parts. See [`Theme::from_terminal`] for an example.
     pub fn new(foreground: Color, background: Color, ansi: [Color; 16]) -> Self {
         Self {
             foreground,
@@ -57,6 +59,14 @@ impl TerminalColors {
     ///
     /// Call it before the terminal reads input in raw mode: the answers
     /// arrive as input. [`Tui::run`](crate::Tui::run) does this at startup.
+    ///
+    /// ```no_run
+    /// use eventful_ratatui::theme::{self, TerminalColors, Theme};
+    /// use std::time::Duration;
+    ///
+    /// let colors = TerminalColors::query(Duration::from_millis(500)).unwrap_or_default();
+    /// theme::set(Theme::from_terminal(&colors));
+    /// ```
     pub fn query(timeout: Duration) -> Option<Self> {
         let answer = query::ask(timeout)?;
         let mut colors = Self::default();
@@ -86,6 +96,22 @@ impl Theme {
     /// colors (the normal or the bright variant, whichever stands out more
     /// from the background), adjusted where they would be too faint to read.
     /// The terminal's foreground and background are kept as they are.
+    ///
+    /// ```
+    /// use eventful_ratatui::{prelude::*, theme::{Appearance, TerminalColors, Theme}};
+    ///
+    /// let mut ansi = TerminalColors::default().ansi;
+    /// ansi[4] = Color::Rgb(0x26, 0x8b, 0xd2); // blue
+    /// let colors = TerminalColors::new(
+    ///     Color::Rgb(0x58, 0x6e, 0x75),
+    ///     Color::Rgb(0xfd, 0xf6, 0xe3),
+    ///     ansi,
+    /// );
+    /// let theme = Theme::from_terminal(&colors);
+    /// assert_eq!(theme.palette.background, colors.background);
+    /// assert_eq!(theme.palette.foreground, colors.foreground);
+    /// assert_eq!(theme.appearance(), Appearance::Light);
+    /// ```
     pub fn from_terminal(colors: &TerminalColors) -> Self {
         let bg = colors.background;
         let fg = colors.foreground;

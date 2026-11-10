@@ -27,7 +27,9 @@ pub struct TreeNode {
 }
 
 impl TreeNode {
-    /// A collapsed node; `id` is what events report.
+    /// A collapsed node without children. `id` is what events and
+    /// [`Tree::selection`] report, and must be unique within the tree;
+    /// `label` is what is shown.
     pub fn new(id: impl Into<String>, label: impl Into<Line<'static>>) -> Self {
         Self {
             id: id.into(),
@@ -36,17 +38,18 @@ impl TreeNode {
             expanded: false,
         }
     }
-    /// Add a child.
+    /// Add a child after the existing ones.
     pub fn child(mut self, child: TreeNode) -> Self {
         self.children.push(child);
         self
     }
-    /// Add children.
+    /// Add children after the existing ones.
     pub fn children(mut self, children: impl IntoIterator<Item = TreeNode>) -> Self {
         self.children.extend(children);
         self
     }
-    /// Start expanded.
+    /// Start expanded, showing the children. Has no visible effect on a node
+    /// without children.
     pub fn expanded(mut self) -> Self {
         self.expanded = true;
         self
@@ -71,6 +74,31 @@ handle! {
     /// PageUp/PageDown jump. A click selects, a click on the arrow toggles,
     /// and a double click activates. Emits [`TreeEvents`](super::TreeEvents)
     /// with node ids.
+    ///
+    /// Each row is indented by depth, with ▸ or ▾ before nodes that have
+    /// children. A scrollbar appears when the visible rows do not fit.
+    ///
+    /// ```
+    /// use eventful_ratatui::{components::{Tree, TreeNode}, testing::Harness};
+    ///
+    /// let files = Tree::new([
+    ///     TreeNode::new("src", "src")
+    ///         .expanded()
+    ///         .child(TreeNode::new("src/main.rs", "main.rs"))
+    ///         .child(TreeNode::new("src/ui", "ui").child(TreeNode::new("src/ui/mod.rs", "mod.rs"))),
+    ///     TreeNode::new("README.md", "README.md"),
+    /// ]);
+    /// let mut ui = Harness::new(files.clone(), 20, 4);
+    /// assert_eq!(ui.lines(), [" ▾ src", "     main.rs", "   ▸ ui", "   README.md"]);
+    ///
+    /// ui.key("tab").keys(&["down", "down", "down"]);
+    /// assert_eq!(files.selection().as_deref(), Some("src/ui"));
+    /// ui.key("right");
+    /// assert!(files.is_expanded("src/ui"));
+    /// // A click on an arrow toggles that node.
+    /// ui.click(0, 0);
+    /// assert!(!files.is_expanded("src"));
+    /// ```
     Tree(State), events = (TreeEventsEventSet, TreeEventsSignalsExt)
 }
 
@@ -86,7 +114,8 @@ pub struct State {
 }
 
 impl Tree {
-    /// A tree of `roots`.
+    /// A tree of `roots`, nothing selected. Which nodes start expanded is
+    /// set with [`TreeNode::expanded`].
     pub fn new(roots: impl IntoIterator<Item = TreeNode>) -> Self {
         Self(Rc::new(State {
             roots: RefCell::new(roots.into_iter().collect()),
@@ -98,16 +127,27 @@ impl Tree {
             events: TreeEventsEmissions::default(),
         }))
     }
-    /// Replace the nodes; the selection is kept if its id still exists.
+    /// Replace the nodes; the selection is kept if its id still exists, and
+    /// cleared otherwise. Expansion comes from the new nodes, so rebuild
+    /// them with [`TreeNode::expanded`] (see [`is_expanded`](Self::is_expanded))
+    /// to keep what the user opened.
     pub fn set_roots(&self, roots: impl IntoIterator<Item = TreeNode>) {
         *self.0.roots.borrow_mut() = roots.into_iter().collect();
+        let selected = self.0.selected.borrow().clone();
+        if let Some(id) = selected
+            && !self.0.with_path(&id, |_, _| {})
+        {
+            *self.0.selected.borrow_mut() = None;
+        }
         invalidate::invalidate();
     }
-    /// The selected node's id.
+    /// The selected node's id, if a node is selected.
     pub fn selection(&self) -> Option<String> {
         self.0.selected.borrow().clone()
     }
-    /// Select the node with `id`, expanding its ancestors; without emitting.
+    /// Select the node with `id`, expanding its ancestors and scrolling it
+    /// into view, without emitting `selected`. Does nothing if no node has
+    /// that id.
     pub fn select(&self, id: &str) {
         let found = self.0.with_path(id, |roots, path| {
             let mut nodes = roots;
@@ -122,13 +162,16 @@ impl Tree {
             invalidate::invalidate();
         }
     }
-    /// Expand or collapse the node with `id`.
+    /// Expand or collapse the node with `id`, without emitting `toggled`.
+    /// Does nothing if no node has that id. If the selection is hidden by
+    /// collapsing, it stays on the hidden node.
     pub fn set_expanded(&self, id: &str, expanded: bool) {
         self.0
             .with_path(id, |roots, path| node_at(roots, path).expanded = expanded);
         invalidate::invalidate();
     }
-    /// Whether the node with `id` is expanded.
+    /// Whether the node with `id` is expanded; `false` if there is no such
+    /// node.
     pub fn is_expanded(&self, id: &str) -> bool {
         let mut expanded = false;
         self.0

@@ -15,12 +15,27 @@ handle! {
     /// A labelled form field: a label above an input, with help text or an
     /// error message below it.
     ///
-    /// ```
-    /// use eventful_ratatui::prelude::*;
+    /// The label is muted, and takes the accent color while focus is inside.
+    /// An error, from [`error`](Self::error) or the validator of an
+    /// [`input`](Self::input), replaces the help text while there is one.
     ///
-    /// let port = TextInput::new().validator(|t| t.parse::<u16>().map(|_| ()).map_err(|_| "not a port".into()));
-    /// let field = Field::input("Port", port).help("1–65535");
     /// ```
+    /// use eventful_ratatui::{prelude::*, testing::Harness};
+    ///
+    /// let port = TextInput::new().value("80").validator(|t| {
+    ///     t.parse::<u16>().map(|_| ()).map_err(|_| "not a port".into())
+    /// });
+    /// let field = Field::input("Port", port).help("1–65535");
+    /// let mut ui = Harness::new(field, 16, 3);
+    /// assert_eq!(ui.lines(), ["Port", " 80", "1–65535"]);
+    ///
+    /// ui.key("tab").type_text("x");
+    /// assert_eq!(ui.lines()[2], "not a port");
+    /// ```
+    ///
+    /// The label takes one row, and the message one more if there is help
+    /// text or an error source, whether or not a message shows right now, so
+    /// the layout does not jump. The child gets the rows in between.
     Field(State)
 }
 
@@ -33,7 +48,8 @@ pub struct State {
 }
 
 impl Field {
-    /// A field labelled `label` around any component.
+    /// A field labelled `label` around any component, like a
+    /// [`Select`](super::Select) or [`Slider`](super::Slider).
     pub fn new(label: impl Into<String>, child: impl Component + 'static) -> Self {
         Self(Rc::new(State {
             label: RefCell::new(label.into()),
@@ -42,22 +58,26 @@ impl Field {
             error: RefCell::default(),
         }))
     }
-    /// A field around a text input, showing its validator's message.
+    /// A field around a text input, showing the message of its
+    /// [`validator`](super::TextInput::validator) as the error.
     pub fn input(label: impl Into<String>, input: TextInput) -> Self {
         let source = input.clone();
         Self::new(label, input).error(move || source.error())
     }
-    /// Text below the input while there is no error.
+    /// Text below the child while there is no error; empty for none.
     pub fn help(self, help: impl Into<String>) -> Self {
         *self.0.help.borrow_mut() = help.into();
         self
     }
-    /// Where the error message comes from; checked on every render.
+    /// Where the error message comes from: `error` returns the message, or
+    /// `None` while the field is valid. It is called on every render, so it
+    /// can read the current state of other components. Replaces the source
+    /// set by [`input`](Self::input).
     pub fn error(self, error: impl Fn() -> Option<String> + 'static) -> Self {
         *self.0.error.borrow_mut() = Some(Box::new(error));
         self
     }
-    /// Change the label.
+    /// Change the label of a field in use, and redraw.
     pub fn set_label(&self, label: impl Into<String>) {
         *self.0.label.borrow_mut() = label.into();
         invalidate::invalidate();

@@ -20,10 +20,32 @@ handle! {
     /// below it, like an autocomplete.
     ///
     /// Up/Down move through the suggestions (and open them), Enter accepts
-    /// the highlighted one, Esc closes the list, and a click picks one.
+    /// the highlighted one (the first, until moved), Esc closes the list, and a click picks one.
     /// Emits [`changed`](super::TextEventsSignalsExt::changed) while typing
     /// and [`submitted`](super::TextEventsSignalsExt::submitted) with the
     /// accepted text.
+    ///
+    /// Matching is case-insensitive: options starting with the text come
+    /// first, then options containing it elsewhere, each in their original
+    /// order. The list is an [overlay](crate::overlay) below the input and
+    /// closes when focus leaves. The text is free: Enter without a
+    /// highlighted suggestion submits whatever was typed.
+    ///
+    /// ```
+    /// use eventful_ratatui::{components::ComboBox, testing::Harness};
+    ///
+    /// let fruit = ComboBox::new(["Apple", "Banana", "Mango", "Orange"]);
+    /// let mut ui = Harness::new(fruit.clone(), 20, 6);
+    ///
+    /// ui.key("tab").type_text("o");
+    /// assert!(fruit.is_open());
+    /// assert_eq!(fruit.suggestions(), ["Orange", "Mango"]);
+    ///
+    /// // The best match is highlighted: Enter accepts it.
+    /// ui.key("enter");
+    /// assert_eq!(fruit.text(), "Orange");
+    /// assert!(!fruit.is_open());
+    /// ```
     ComboBox(State), events = (TextEventsEventSet, TextEventsSignalsExt)
 }
 
@@ -82,7 +104,7 @@ impl ComboBox {
         state.refilter("");
         Self(state)
     }
-    /// Text shown while empty.
+    /// Text shown while the input is empty.
     pub fn placeholder(self, placeholder: impl Into<String>) -> Self {
         // The builder shares the input's state; the returned handle is a
         // copy of ours.
@@ -93,16 +115,18 @@ impl ComboBox {
     pub fn text(&self) -> String {
         self.0.input.text()
     }
-    /// Replace the text without emitting events.
+    /// Replace the text without emitting events or opening the list.
     pub fn set_text(&self, text: impl Into<String>) {
         self.0.input.set_text(text);
     }
-    /// Replace the options.
+    /// Replace the options and refilter the suggestions for the current
+    /// text.
     pub fn set_options<I: IntoIterator<Item = S>, S: Into<String>>(&self, options: I) {
         *self.0.options.borrow_mut() = options.into_iter().map(Into::into).collect();
         self.0.refilter(&self.0.input.text());
     }
-    /// The suggestions currently listed.
+    /// The options matching the current text, in the order they are
+    /// listed; every option while the text is empty.
     pub fn suggestions(&self) -> Vec<String> {
         let options = self.0.options.borrow();
         self.0

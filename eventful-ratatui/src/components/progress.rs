@@ -25,6 +25,23 @@ const FRAME: Duration = Duration::from_millis(80);
 handle! {
     /// A slim progress bar on a track: `█████▋      42%`, with an optional
     /// label above it. Without a value it is indeterminate and animates.
+    ///
+    /// The fill moves in eighths of a cell. Not interactive. Set the value
+    /// from a worker's events as work completes; each change redraws.
+    ///
+    /// ```
+    /// use eventful_ratatui::{components::ProgressBar, testing::Harness};
+    ///
+    /// let download = ProgressBar::new();
+    /// download.set_value(Some(0.5));
+    /// let mut ui = Harness::new(download.clone(), 14, 1);
+    /// assert_eq!(ui.lines(), ["████▌      50%"]);
+    ///
+    /// // With a label and two rows, the percentage moves up beside it.
+    /// download.set_label(Some("Downloading".into()));
+    /// ui.resize(20, 2);
+    /// assert_eq!(ui.lines(), ["Downloading      50%", "██████████"]);
+    /// ```
     ProgressBar(BarState)
 }
 
@@ -36,7 +53,7 @@ pub struct BarState {
 }
 
 impl ProgressBar {
-    /// An indeterminate bar.
+    /// An indeterminate bar with no label; see also [`Default`].
     pub fn new() -> Self {
         Self(Rc::new(BarState {
             value: Cell::new(None),
@@ -53,8 +70,9 @@ impl ProgressBar {
         self.0.value.set(value.map(|v| v.clamp(0.0, 1.0)));
         invalidate::invalidate();
     }
-    /// Text above the bar, with the percentage at its right. Given one row,
-    /// the label goes after the bar instead of the percentage.
+    /// Text above the bar, with the percentage at its right, or `None` for
+    /// no label. Given one row, the label goes after the bar instead of the
+    /// percentage. A label makes the bar's preferred height two rows.
     pub fn set_label(&self, label: Option<String>) {
         *self.0.label.borrow_mut() = label;
         invalidate::invalidate();
@@ -144,6 +162,21 @@ const LEFT: [&str; 9] = [" ", "▏", "▎", "▍", "▌", "▋", "▊", "▉", "
 
 handle! {
     /// An activity indicator: `⠋ Loading`. Animates while spinning.
+    ///
+    /// The frames come from the theme's
+    /// [symbols](crate::theme::Theme::symbols). Not interactive.
+    ///
+    /// ```
+    /// use eventful_ratatui::{components::Spinner, testing::Harness};
+    ///
+    /// let loading = Spinner::new("Loading");
+    /// let mut ui = Harness::new(loading.clone(), 12, 1);
+    /// assert!(ui.lines()[0].ends_with(" Loading"));
+    ///
+    /// loading.set_spinning(false);
+    /// ui.render();
+    /// assert_eq!(ui.lines(), ["Loading"]);
+    /// ```
     Spinner(SpinnerState)
 }
 
@@ -155,7 +188,7 @@ pub struct SpinnerState {
 }
 
 impl Spinner {
-    /// A spinning spinner labelled `label`; may be empty.
+    /// A spinning spinner labelled `label`; the label may be empty.
     pub fn new(label: impl Into<String>) -> Self {
         Self(Rc::new(SpinnerState {
             label: RefCell::new(label.into()),
@@ -172,7 +205,7 @@ impl Spinner {
     pub fn is_spinning(&self) -> bool {
         self.0.spinning.get()
     }
-    /// Change the label.
+    /// Change the label and redraw.
     pub fn set_label(&self, label: impl Into<String>) {
         *self.0.label.borrow_mut() = label.into();
         invalidate::invalidate();

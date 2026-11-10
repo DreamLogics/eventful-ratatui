@@ -13,12 +13,38 @@ use std::{
 
 handle! {
     /// A vertically scrolling viewport around content taller than the
-    /// screen, like a long form. The content's height comes from its
-    /// [`preferred_size`](crate::Component::preferred_size).
+    /// screen, like a long form.
     ///
-    /// The wheel scrolls; PageUp/PageDown and Ctrl+Home/End scroll when the
-    /// content does not handle them. Moving the focus scrolls the focused
-    /// component into view. Mouse input, focus and the cursor work inside.
+    /// The content's height comes from its
+    /// [`preferred_size`](crate::Component::preferred_size). Content that
+    /// fits is drawn as is; taller content is drawn one column narrower, with
+    /// a scrollbar in the last column.
+    ///
+    /// The wheel scrolls three rows at a time. The view itself is not
+    /// focusable: PageUp/PageDown and Ctrl+Home/End scroll when they bubble
+    /// up from focused content that does not handle them. Moving the focus
+    /// scrolls the focused component into view, once per focus change, so the
+    /// user can still scroll away from it. Mouse input, focus and the cursor
+    /// work inside.
+    ///
+    /// ```
+    /// use eventful_ratatui::{components::{Label, ScrollView, Stack}, testing::Harness};
+    ///
+    /// let rows = (0..10).fold(Stack::vertical(), |stack, i| {
+    ///     stack.fit(Label::new(format!("row {i}")))
+    /// });
+    /// let view = ScrollView::new(rows);
+    /// let mut ui = Harness::new(view.clone(), 10, 3);
+    /// assert!(ui.lines()[0].starts_with("row 0"));
+    ///
+    /// // One wheel notch down, over the view.
+    /// ui.scroll(1, 1, 1);
+    /// assert_eq!(view.offset(), 3);
+    /// assert!(ui.lines()[0].starts_with("row 3"));
+    /// // Scrolling stops at the end of the content.
+    /// ui.scroll(1, 1, 10);
+    /// assert_eq!(view.offset(), 7);
+    /// ```
     ScrollView(State)
 }
 
@@ -34,7 +60,7 @@ pub struct State {
 }
 
 impl ScrollView {
-    /// Scroll `content`.
+    /// Scroll `content`, starting at the top.
     pub fn new(content: impl Component + 'static) -> Self {
         Self(Rc::new(State {
             child: RefCell::new(Some(Rc::new(content))),
@@ -43,11 +69,12 @@ impl ScrollView {
             revealed: Cell::new(std::ptr::null()),
         }))
     }
-    /// The first visible row of the content.
+    /// The first visible row of the content; 0 while it fits.
     pub fn offset(&self) -> u16 {
         self.0.offset.get()
     }
-    /// Scroll so `row` of the content is at the top.
+    /// Scroll so `row` of the content is at the top. The offset is clamped at
+    /// the next render, so that the last screen is never past the end.
     pub fn scroll_to(&self, row: u16) {
         self.0.offset.set(row);
         invalidate::invalidate();

@@ -20,8 +20,25 @@ use std::{
 
 handle! {
     /// One choice out of several: `● Small  ○ Large`. The group takes
-    /// focus as a whole; arrows move the choice, a click picks one. Emits
-    /// [`selected`](super::SelectEventsSignalsExt::selected).
+    /// focus as a whole; arrows, Home and End move the choice, a click picks
+    /// one. Emits [`selected`](super::SelectEventsSignalsExt::selected).
+    ///
+    /// Options are stacked one per row, or laid out in a row with
+    /// [`horizontal`](Self::horizontal). The arrows stop at the first and
+    /// last option instead of wrapping.
+    ///
+    /// ```
+    /// use eventful_ratatui::{components::RadioGroup, testing::Harness};
+    ///
+    /// let size = RadioGroup::new(["Small", "Medium", "Large"]).with_selection(0);
+    /// let mut ui = Harness::new(size.clone(), 12, 3);
+    /// assert_eq!(ui.lines(), [" ● Small", " ○ Medium", " ○ Large"]);
+    ///
+    /// ui.key("tab").key("down");
+    /// assert_eq!(size.selection(), Some(1));
+    /// ui.click(1, 2);
+    /// assert_eq!(size.selection(), Some(2));
+    /// ```
     RadioGroup(State), events = (SelectEventsEventSet, SelectEventsSignalsExt)
 }
 
@@ -48,7 +65,8 @@ impl RadioGroup {
             events: SelectEventsEmissions::default(),
         }))
     }
-    /// Lay the options out in a row.
+    /// Lay the options out in a row, three columns apart; Left/Right move
+    /// the choice instead of Up/Down.
     pub fn horizontal(self) -> Self {
         self.0.horizontal.set(true);
         self
@@ -58,11 +76,11 @@ impl RadioGroup {
         self.0.selected.set(Some(index));
         self
     }
-    /// The selected option, if any.
+    /// The index of the selected option, if any.
     pub fn selection(&self) -> Option<usize> {
         self.0.selected.get()
     }
-    /// Select `index` without emitting `selected`.
+    /// Select `index`, or nothing with `None`, without emitting `selected`.
     pub fn set_selection(&self, index: Option<usize>) {
         self.0.selected.set(index);
         invalidate::invalidate();
@@ -71,11 +89,14 @@ impl RadioGroup {
     pub fn options(&self) -> Vec<String> {
         self.0.options.borrow().clone()
     }
-    /// Whether it can be changed and focused.
+    /// Whether it can be changed and focused. Groups start enabled.
     pub fn is_enabled(&self) -> bool {
         self.0.enabled.get()
     }
-    /// Enable or disable it.
+    /// Enable or disable it. Disabled, it draws dimmed, ignores input, and
+    /// Tab skips it.
+    /// Disabling it while it has focus moves focus to the next focusable
+    /// component; see [`focus`](crate::focus).
     pub fn set_enabled(&self, enabled: bool) {
         self.0.enabled.set(enabled);
         invalidate::invalidate();

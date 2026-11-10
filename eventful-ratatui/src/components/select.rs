@@ -26,6 +26,28 @@ handle! {
     /// Enter, Space, Alt+Down or a click opens the list below it; Up/Down
     /// change the value directly while closed. Emits
     /// [`selected`](super::SelectEventsSignalsExt::selected).
+    ///
+    /// The list opens as an [overlay](crate::overlay) anchored below the
+    /// select; picking an option closes it. While nothing is selected the
+    /// select shows its [placeholder](Self::placeholder), `Select…` by
+    /// default.
+    ///
+    /// ```
+    /// use eventful_ratatui::{components::Select, testing::Harness};
+    ///
+    /// let size = Select::new(["Small", "Medium", "Large"]).placeholder("Size");
+    /// let mut ui = Harness::new(size.clone(), 12, 5);
+    /// assert_eq!(ui.lines()[0], " Size     ▾");
+    ///
+    /// ui.key("tab").key("down").key("down");
+    /// assert_eq!(size.value().as_deref(), Some("Medium"));
+    ///
+    /// ui.key("enter");
+    /// assert!(size.is_open());
+    /// ui.key("down").key("enter");
+    /// assert!(!size.is_open());
+    /// assert_eq!(size.value().as_deref(), Some("Large"));
+    /// ```
     Select(State), events = (SelectEventsEventSet, SelectEventsSignalsExt)
 }
 
@@ -42,7 +64,7 @@ pub struct State {
 }
 
 impl Select {
-    /// A select over `options`, nothing selected.
+    /// A select over `options`, with nothing selected.
     pub fn new<I: IntoIterator<Item = S>, S: Into<String>>(options: I) -> Self {
         let options = options.into_iter().map(Into::into).collect();
         Self(Rc::new_cyclic(|me| State {
@@ -55,21 +77,21 @@ impl Select {
             me: me.clone(),
         }))
     }
-    /// Start with `index` selected.
+    /// Start with `index` selected; an out-of-range index is ignored.
     pub fn with_selection(self, index: usize) -> Self {
         self.set_selection(Some(index));
         self
     }
-    /// Text shown while nothing is selected.
+    /// Text shown while nothing is selected; `Select…` by default.
     pub fn placeholder(self, placeholder: impl Into<String>) -> Self {
         *self.0.placeholder.borrow_mut() = placeholder.into();
         self
     }
-    /// The selected option.
+    /// The index of the selected option, if any.
     pub fn selection(&self) -> Option<usize> {
         self.0.selected.get()
     }
-    /// The selected option's text.
+    /// The selected option's text, if any.
     pub fn value(&self) -> Option<String> {
         self.selection()
             .and_then(|i| self.0.options.borrow().get(i).cloned())
@@ -90,11 +112,14 @@ impl Select {
     pub fn is_open(&self) -> bool {
         self.0.popup.borrow().as_ref().is_some_and(Overlay::is_open)
     }
-    /// Whether it can be used and focused.
+    /// Whether it can be used and focused. Selects start enabled.
     pub fn is_enabled(&self) -> bool {
         self.0.enabled.get()
     }
-    /// Enable or disable it.
+    /// Enable or disable it. Disabled, it draws dimmed, ignores input, and
+    /// Tab skips it.
+    /// Disabling it while it has focus moves focus to the next focusable
+    /// component; see [`focus`](crate::focus).
     pub fn set_enabled(&self, enabled: bool) {
         self.0.enabled.set(enabled);
         invalidate::invalidate();

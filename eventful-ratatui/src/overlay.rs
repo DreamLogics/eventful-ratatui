@@ -34,6 +34,11 @@
 //! assert!(toast.is_open());
 //! drop(toast);
 //! ```
+//!
+//! Overlays are per thread: open them from the UI shard. They render on the
+//! next frame, after the root, at the area their [`Placement`] resolves to.
+//! The library's [`Dialog`](crate::components::Dialog),
+//! [`Menu`](crate::components::Menu) and toasts are built on this module.
 use crate::{
     Component,
     component::ComponentRef,
@@ -56,7 +61,19 @@ use std::{
     task::{Context, Poll, Waker},
 };
 
-/// Where an overlay goes on screen.
+/// Where an overlay goes on screen. Sizes come from the component's
+/// [`preferred_size`](Component::preferred_size), capped to the screen, and
+/// every area is clipped to the screen.
+///
+/// ```
+/// use eventful_ratatui::{overlay::{Placement, overlay}, prelude::*};
+///
+/// # struct Choices;
+/// # impl Component for Choices { fn render(&self, _: Rect, _: &mut Buffer) {} }
+/// // A dropdown under a button drawn at `anchor` in the last frame.
+/// let anchor = Rect::new(10, 2, 12, 1);
+/// let dropdown = overlay(Choices).placement(Placement::Below(anchor)).open();
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Placement {
@@ -68,13 +85,15 @@ pub enum Placement {
     /// Centered horizontally near the top, at the preferred size, like a
     /// command palette.
     Top,
-    /// At a corner with a one-cell margin, at the preferred size.
+    /// At the top-right corner with a one-cell margin, at the preferred size.
     TopRight,
-    /// At a corner with a one-cell margin, at the preferred size.
+    /// At the bottom-right corner with a one-cell margin, at the preferred
+    /// size. Toasts.
     BottomRight,
-    /// At a corner with a one-cell margin, at the preferred size.
+    /// At the bottom-left corner with a one-cell margin, at the preferred
+    /// size.
     BottomLeft,
-    /// At a corner with a one-cell margin, at the preferred size.
+    /// At the top-left corner with a one-cell margin, at the preferred size.
     TopLeft,
     /// Exactly this area, clipped to the screen.
     At(Rect),
@@ -140,7 +159,8 @@ impl Placement {
 }
 
 /// Settings for an overlay. Start with [`overlay`], finish with
-/// [`open`](Self::open).
+/// [`open`](Self::open). Later calls override earlier ones, so
+/// `.modal().close_on_esc(false)` is a modal that only closes when told.
 pub struct OverlayBuilder {
     component: Rc<dyn Component>,
     placement: Placement,
@@ -161,6 +181,40 @@ struct Flags {
 
 /// Prepare an overlay showing `component`: a popup at the center, until
 /// changed.
+///
+/// A popup takes focus, focusing its first focusable component, and closes
+/// on Esc or a click outside, giving the focus back:
+///
+/// ```
+/// use eventful_ratatui::{overlay::overlay, prelude::*, testing::Harness};
+///
+/// struct Item;
+/// impl Component for Item {
+///     fn render(&self, area: Rect, buf: &mut Buffer) {
+///         "item".render(area, buf);
+///     }
+///     fn focusable(&self) -> bool {
+///         true
+///     }
+///     fn preferred_size(&self, _: Size) -> Size {
+///         Size::new(4, 1)
+///     }
+/// }
+/// struct Screen;
+/// impl Component for Screen {
+///     fn render(&self, _: Rect, _: &mut Buffer) {}
+/// }
+///
+/// let mut ui = Harness::new(Screen, 6, 3);
+/// let popup = overlay(std::rc::Rc::new(Item)).open();
+/// ui.render();
+/// assert_eq!(ui.lines(), ["", " item", ""]);
+/// assert!(focus::focused().is_some());
+///
+/// ui.key("esc");
+/// assert!(!popup.is_open());
+/// assert_eq!(ui.lines(), ["", "", ""]);
+/// ```
 pub fn overlay(component: impl Component + 'static) -> OverlayBuilder {
     OverlayBuilder {
         component: Rc::new(component),
@@ -176,13 +230,13 @@ pub fn overlay(component: impl Component + 'static) -> OverlayBuilder {
 }
 
 impl OverlayBuilder {
-    /// Where to show it.
+    /// Where to show it. The default is [`Placement::Center`].
     pub fn placement(mut self, placement: Placement) -> Self {
         self.placement = placement;
         self
     }
     /// Dim and block everything below; Esc still closes it, a click outside
-    /// does not.
+    /// does not. Takes focus, and keeps Tab and keys inside it.
     pub fn modal(mut self) -> Self {
         self.flags.dim = true;
         self.flags.block = true;
@@ -190,24 +244,32 @@ impl OverlayBuilder {
         self.flags.close_on_click_outside = false;
         self
     }
-    /// Take no focus and close only when told, like a toast.
+    /// Take no focus and close only when told, like a toast: neither Esc nor
+    /// a click outside closes it. Clicks on it still reach its component.
     pub fn passive(mut self) -> Self {
         self.flags.take_focus = false;
         self.flags.close_on_esc = false;
         self.flags.close_on_click_outside = false;
         self
     }
-    /// Whether Esc closes it, if nothing inside handles Esc first.
+    /// Whether Esc closes it, if nothing inside handles Esc first. Defaults
+    /// to `true`, or `false` after [`passive`](Self::passive).
     pub fn close_on_esc(mut self, close: bool) -> Self {
         self.flags.close_on_esc = close;
         self
     }
-    /// Whether a click outside closes it. The click is consumed.
+    /// Whether a press outside closes it; the press is consumed. Defaults to
+    /// `true` for popups and `false` after [`modal`](Self::modal) or
+    /// [`passive`](Self::passive).
     pub fn close_on_click_outside(mut self, close: bool) -> Self {
         self.flags.close_on_click_outside = close;
         self
     }
-    /// Show it. It stays open until closed, dismissed, or the handle drops.
+    /// Show it from the next frame. It stays open until closed, dismissed,
+    /// the handle drops, or the loop run ends. Requests a redraw.
+    ///
+    /// Keep the returned [`Overlay`]: `let _ = overlay(..).open();` closes it
+    /// at once. Use [`Overlay::detach`] to keep it open without a handle.
     pub fn open(self) -> Overlay {
         let id = NEXT_ID.with(|next| {
             let id = next.get();
@@ -259,6 +321,41 @@ struct Shared {
 
 /// An open overlay. Dropping it closes the overlay, unless it was
 /// [`detach`](Self::detach)ed.
+///
+/// Await [`closed`](Self::closed) to learn when it goes, and hand a
+/// [`Closer`] to the component inside so it can close itself:
+///
+/// ```
+/// use eventful_ratatui::{overlay::{Closer, overlay}, prelude::*};
+/// use std::{cell::Cell, rc::Rc};
+///
+/// /// A popup that closes itself on Enter.
+/// #[derive(Default)]
+/// struct Confirm(Cell<Option<Closer>>);
+/// impl Component for Confirm {
+///     fn render(&self, _: Rect, _: &mut Buffer) {}
+///     fn on_input(&self, event: &InputEvent) -> Handled {
+///         match event {
+///             InputEvent::Key(key) if key.code == KeyCode::Enter => {
+///                 if let Some(closer) = self.0.get() {
+///                     closer.close();
+///                 }
+///                 Handled::Yes
+///             }
+///             _ => Handled::No,
+///         }
+///     }
+/// }
+///
+/// let confirm = Rc::new(Confirm::default());
+/// let popup = overlay(confirm.clone()).open();
+/// confirm.0.set(Some(popup.closer()));
+///
+/// confirm.on_input(&InputEvent::Key(KeyCode::Enter.into()));
+/// assert!(!popup.is_open());
+/// // Resolves at once, as it is already closed.
+/// futures::executor::block_on(popup.closed());
+/// ```
 pub struct Overlay {
     id: u64,
     shared: Rc<Shared>,
@@ -266,7 +363,8 @@ pub struct Overlay {
 }
 
 impl Overlay {
-    /// Close it. Does nothing if it is already closed.
+    /// Close it, restoring the focus it took. Does nothing if it is already
+    /// closed. Requests a redraw.
     pub fn close(&self) {
         close(self.id);
     }
@@ -274,15 +372,18 @@ impl Overlay {
     pub fn is_open(&self) -> bool {
         LAYERS.with_borrow(|layers| layers.iter().any(|l| l.id == self.id))
     }
-    /// Resolves once it closes, for whatever reason.
+    /// A future that resolves once it closes, for whatever reason, including
+    /// the loop run ending. Await it on the UI shard.
     pub fn closed(&self) -> Closed {
         Closed {
             id: self.id,
             shared: self.shared.clone(),
         }
     }
-    /// Keep it open without the handle. It closes when dismissed, or through
-    /// a [`Closer`] taken earlier.
+    /// Keep it open without the handle. It closes when dismissed, through a
+    /// [`Closer`] taken earlier, with [`close_all`], or when the loop run
+    /// ends. A detached [`passive`](OverlayBuilder::passive) overlay needs a
+    /// `Closer`, or it stays until then.
     pub fn detach(mut self) {
         self.detached = true;
     }
@@ -310,7 +411,9 @@ impl fmt::Debug for Overlay {
     }
 }
 
-/// Closes an overlay without keeping it open. Cloneable.
+/// Closes an overlay without keeping it open. `Copy`, so a component can
+/// keep one in a `Cell`. Get one with [`Overlay::closer`]; see [`Overlay`]
+/// for an example.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Closer(u64);
 
@@ -325,7 +428,7 @@ impl Closer {
     }
 }
 
-/// Resolves once an overlay closes. See [`Overlay::closed`].
+/// A future that resolves once an overlay closes. See [`Overlay::closed`].
 #[derive(Clone)]
 pub struct Closed {
     id: u64,
@@ -559,12 +662,13 @@ pub(crate) fn dismiss_outside(position: ratatui_core::layout::Position, floor: u
     !ids.is_empty()
 }
 
-/// Whether any overlay is open.
+/// Whether any overlay is open on this thread, passive ones included.
 pub fn any_open() -> bool {
     LAYERS.with_borrow(|layers| !layers.is_empty())
 }
 
-/// Close every overlay.
+/// Close every overlay on this thread, topmost first, detached ones
+/// included. Each closed overlay restores the focus it took.
 pub fn close_all() {
     let ids: Vec<u64> = LAYERS.with_borrow(|layers| layers.iter().map(|l| l.id).collect());
     for id in ids.into_iter().rev() {

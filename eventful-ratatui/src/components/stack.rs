@@ -15,13 +15,23 @@ handle! {
     /// optional spacing. The building block for forms and screens.
     ///
     /// ```
-    /// use eventful_ratatui::prelude::*;
+    /// use eventful_ratatui::{prelude::*, testing::Harness};
     ///
+    /// let name = TextInput::new().placeholder("Name");
     /// let form = Stack::vertical()
-    ///     .child(Constraint::Length(1), TextInput::new().placeholder("Name"))
+    ///     .spacing(1)
+    ///     .child(Constraint::Length(1), name.clone())
     ///     .child(Constraint::Length(1), Checkbox::new("Subscribe"))
-    ///     .child(Constraint::Length(1), Button::new("Save").primary());
+    ///     .fit(Button::new("Save").primary());
+    /// let mut ui = Harness::new(form, 20, 5);
+    /// assert!(ui.lines()[4].contains("Save"));
+    ///
+    /// // Tab order follows the order the children render in.
+    /// ui.key("tab");
+    /// assert!(name.is_focused());
     /// ```
+    ///
+    /// The stack itself takes no focus and draws nothing of its own.
     ///
     /// [`Constraint::Length`] sized children report their length in
     /// [`preferred_size`](crate::Component::preferred_size), so a stack
@@ -52,12 +62,16 @@ impl Stack {
             children: RefCell::default(),
         }))
     }
-    /// Add `child`, sized by `constraint`.
+    /// Add `child` after the others, sized by `constraint` along the
+    /// stack's direction. Across it, every child gets the full width (or
+    /// height).
     pub fn child(self, constraint: Constraint, child: impl Component + 'static) -> Self {
         self.push(constraint, child);
         self
     }
-    /// Add `child` at its preferred size along the stack's direction.
+    /// Add `child` at its preferred size along the stack's direction, as a
+    /// [`Constraint::Length`]. The size is measured once, now, with
+    /// unlimited space; it does not follow later changes to the child.
     pub fn fit(self, child: impl Component + 'static) -> Self {
         let child: Rc<dyn Component> = Rc::new(child);
         let size = child.preferred_size(Size::new(u16::MAX, u16::MAX));
@@ -71,12 +85,13 @@ impl Stack {
             .push((Constraint::Length(length), child));
         self
     }
-    /// Cells between children.
+    /// Cells between children; 0 by default.
     pub fn spacing(self, spacing: u16) -> Self {
         self.0.spacing.set(spacing);
         self
     }
-    /// Add `child` to a stack in use.
+    /// Add `child` to a stack in use, after the others, and redraw. Like
+    /// [`child`](Self::child), for a `&Stack`.
     pub fn push(&self, constraint: Constraint, child: impl Component + 'static) {
         self.0
             .children
@@ -84,7 +99,7 @@ impl Stack {
             .push((constraint, Rc::new(child)));
         invalidate::invalidate();
     }
-    /// Remove every child.
+    /// Remove every child, and redraw.
     pub fn clear(&self) {
         self.0.children.borrow_mut().clear();
         invalidate::invalidate();

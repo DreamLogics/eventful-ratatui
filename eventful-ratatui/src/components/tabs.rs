@@ -17,9 +17,31 @@ use std::{
 handle! {
     /// Pages behind a row of tabs, drawn as buttons: the selected one filled.
     ///
-    /// The tab row takes focus: Left/Right switch pages. Ctrl+PageUp and
-    /// Ctrl+PageDown switch from anywhere inside, and a click on a title
-    /// switches too. Emits [`selected`](super::SelectEventsSignalsExt::selected).
+    /// The tab row takes focus: Left/Right switch pages, wrapping around,
+    /// and Home/End go to the first and last. Ctrl+PageUp and Ctrl+PageDown
+    /// switch from anywhere inside, also while focus is in a page, and a
+    /// click on a title switches too. Tab moves from the tab row into the
+    /// page. When the page holding focus is switched away, focus moves to the
+    /// tab row. Every switch by the user emits
+    /// [`selected`](super::SelectEventsSignalsExt::selected) with the new
+    /// index.
+    ///
+    /// The first row holds the titles; the selected page fills the rows
+    /// below.
+    ///
+    /// ```
+    /// use eventful_ratatui::{prelude::*, testing::Harness};
+    ///
+    /// let tabs = Tabs::new()
+    ///     .page("User", Label::new("ada"))
+    ///     .page("About", Label::new("v0.1"));
+    /// let mut ui = Harness::new(tabs.clone(), 20, 2);
+    /// assert_eq!(ui.lines(), ["  User     About", "ada"]);
+    ///
+    /// ui.key("tab").key("right");
+    /// assert_eq!(tabs.selection(), 1);
+    /// assert_eq!(ui.lines()[1], "v0.1");
+    /// ```
     Tabs(State), events = (SelectEventsEventSet, SelectEventsSignalsExt)
 }
 
@@ -36,7 +58,7 @@ pub struct State {
 }
 
 impl Tabs {
-    /// No pages yet.
+    /// No pages yet. Tabs without pages take no focus.
     pub fn new() -> Self {
         Self(Rc::new(State {
             pages: RefCell::default(),
@@ -45,7 +67,8 @@ impl Tabs {
             events: SelectEventsEmissions::default(),
         }))
     }
-    /// Add a page titled `title` showing `content`.
+    /// Add a page titled `title` showing `content`, after the others. The
+    /// first page added is selected.
     pub fn page(self, title: impl Into<String>, content: impl Component + 'static) -> Self {
         self.0
             .pages
@@ -54,20 +77,24 @@ impl Tabs {
         self
     }
     /// Add a tab without content: use the tabs as a switcher and render the
-    /// content yourself, by [`selection`](Self::selection).
+    /// content yourself, by [`selection`](Self::selection) or on
+    /// [`selected`](super::SelectEventsSignalsExt::selected). Give such tabs
+    /// a one-row area.
     pub fn tab(self, title: impl Into<String>) -> Self {
         self.0.pages.borrow_mut().push((title.into(), None));
         self
     }
-    /// The selected page.
+    /// The index of the selected page; 0 while there are no pages.
     pub fn selection(&self) -> usize {
         self.0.selected.get()
     }
-    /// Switch to `index` without emitting `selected`.
+    /// Switch to page `index` without emitting `selected`. Indices past the
+    /// end are ignored. Focus inside the page switched away from moves to
+    /// the tab row.
     pub fn set_selection(&self, index: usize) {
         self.0.show(index);
     }
-    /// The page titles.
+    /// The page titles, in order.
     pub fn titles(&self) -> Vec<String> {
         self.0
             .pages

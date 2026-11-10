@@ -21,8 +21,78 @@
 //! eventful-rs macros resolve the runtime through the application's own
 //! `eventful-rs` dependency. Both must resolve to the same semver-compatible
 //! version, or types like `ShardRc` from the two copies won't match.
+//!
+//! # Quick start
+//!
+//! A counter: a label, a button that reports clicks as an event, and a key
+//! binding to quit.
+//!
+//! ```
+//! use eventful_ratatui::prelude::*;
+//! use eventful_rs::*;
+//! use std::cell::Cell;
+//!
+//! declare_shard!(Ui, runtime = main);
+//!
+//! #[eventful(shard = Ui)]
+//! struct Counter {
+//!     count: Cell<u32>,
+//!     label: Label,
+//!     add: Button,
+//!     keys: Keymap<Counter>,
+//! }
+//!
+//! impl Counter {
+//!     fn add(&self) {
+//!         self.count.set(self.count.get() + 1);
+//!         self.label.set_text(format!("Clicked {} times", self.count.get()));
+//!     }
+//! }
+//!
+//! impl Component for Counter {
+//!     fn render(&self, area: Rect, buf: &mut Buffer) {
+//!         let [label, button] =
+//!             Layout::vertical([Constraint::Length(2), Constraint::Length(1)]).areas(area);
+//!         self.label.render(label, buf);
+//!         self.add.render(button, buf);
+//!     }
+//!     fn on_input(&self, event: &InputEvent) -> Handled {
+//!         self.keys.dispatch(self, event)
+//!     }
+//! }
+//!
+//! #[sharded_main(Ui)]
+//! async fn main() -> eventful_ratatui::Result<()> {
+//!     let counter = Counter::bind_local(Counter {
+//!         count: Cell::new(0),
+//!         label: Label::new("Not clicked yet; q quits"),
+//!         add: Button::new("Add one").primary(),
+//!         keys: Keymap::new().bind("q", |_| quit()),
+//!         events: Default::default(),
+//!     })?;
+//!     // Components report through events; connect them to your methods.
+//!     let _add = counter.add.clicked().with_receiver(&counter).connect(Counter::add).scoped();
+//!     counter.add.focus();
+//!     # if false {
+//!     Tui::new().mouse(true).run(&counter).await?;
+//!     # }
+//!     Ok(())
+//! }
+//! ```
+//!
+//! The repository's `examples/` directory has larger apps: a gallery of every
+//! component, a chat client with a network worker, and a dashboard.
 #![forbid(unsafe_code)]
 #![deny(missing_docs, missing_debug_implementations)]
+#![warn(
+    // Documentation is part of the API: see CLAUDE.md. CI denies warnings.
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::doc_markdown,
+    clippy::too_long_first_doc_paragraph,
+    rustdoc::missing_crate_level_docs,
+    rustdoc::unescaped_backticks
+)]
 
 // `#[key_events]` refers to this crate as `::eventful_ratatui`, also inside it.
 extern crate self as eventful_ratatui;
@@ -98,6 +168,21 @@ pub use error::{Error, Result};
 ///     # }
 ///     Ok(())
 /// }
+/// ```
+///
+/// Mistakes are compile errors, like binding a chord twice:
+///
+/// ```compile_fail
+/// use eventful_ratatui::prelude::*;
+///
+/// #[key_events]
+/// trait Keys {
+///     #[key("j")]
+///     fn down(&self);
+///     #[key("j")] // error: `j` is already bound to `down`
+///     fn up(&self);
+/// }
+/// # fn main() {}
 /// ```
 pub use eventful_ratatui_macros::key_events;
 /// The eventful-rs version this crate is built against.

@@ -1,5 +1,12 @@
 //! `Choices`: the pickable rows inside menus, selects, combo boxes and the
 //! command palette. Internal.
+//!
+//! It owns the rows, the highlighted row and scrolling, draws them (with an
+//! optional border), and handles navigation keys and mouse picks. It knows
+//! nothing about what a pick means: the owning component installs an
+//! [`on_pick`](Choices::on_pick) hook, and can see keys first with
+//! [`on_key`](Choices::on_key), for example to filter by typed text.
+//! Separators and disabled rows are shown but never highlighted or picked.
 use crate::{
     Component, Handled, invalidate, mouse,
     theme::{self, Interaction},
@@ -18,17 +25,19 @@ use std::{
     rc::Rc,
 };
 
-/// One row.
+/// One row: a label, an optional hint, or a separator line.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Row {
     pub(crate) label: Line<'static>,
     /// Right-aligned text, like a shortcut.
     pub(crate) hint: String,
     pub(crate) enabled: bool,
+    /// Draw a horizontal rule instead of the label; never pickable.
     pub(crate) separator: bool,
 }
 
 impl Row {
+    /// An enabled row showing `label`, without a hint.
     pub(crate) fn new(label: impl Into<Line<'static>>) -> Self {
         Self {
             label: label.into(),
@@ -37,6 +46,7 @@ impl Row {
             separator: false,
         }
     }
+    /// A separator between groups of rows.
     pub(crate) fn separator() -> Self {
         Self {
             separator: true,
@@ -44,6 +54,7 @@ impl Row {
             ..Self::default()
         }
     }
+    /// Whether the highlight can rest on it.
     fn pickable(&self) -> bool {
         self.enabled && !self.separator
     }
@@ -54,11 +65,16 @@ type PickHook = Rc<dyn Fn(usize)>;
 /// Sees input first.
 type KeyHook = Rc<dyn Fn(&Event) -> Handled>;
 
+/// A scrolling column of [`Row`]s with one highlighted row.
 pub(crate) struct Choices {
     rows: RefCell<Vec<Row>>,
+    /// Index into `rows`; only ever a pickable row.
     highlight: Cell<Option<usize>>,
+    /// First visible row.
     offset: Cell<usize>,
+    /// Rows shown at the last render, for paging.
     height: Cell<usize>,
+    /// Draw a border around the rows, as in a dropdown.
     bordered: bool,
     /// Take keyboard focus; off when another component (an input) keeps it
     /// and forwards keys.
@@ -70,6 +86,7 @@ pub(crate) struct Choices {
 }
 
 impl Choices {
+    /// Choices over `rows`, with the first pickable row highlighted.
     pub(crate) fn new(rows: Vec<Row>, bordered: bool, focusable: bool) -> Rc<Self> {
         let choices = Rc::new(Self {
             rows: RefCell::new(rows),
@@ -86,14 +103,20 @@ impl Choices {
         choices
     }
 
+    /// Run `hook` with the row index when a row is picked, by Enter or a
+    /// click. Replaces an earlier hook.
     pub(crate) fn on_pick(&self, hook: impl Fn(usize) + 'static) {
         *self.on_pick.borrow_mut() = Some(Rc::new(hook));
     }
 
+    /// Let `hook` see input before the built-in navigation; it returns
+    /// whether it handled the event. Replaces an earlier hook.
     pub(crate) fn on_key(&self, hook: impl Fn(&Event) -> Handled + 'static) {
         *self.on_key.borrow_mut() = Some(Rc::new(hook));
     }
 
+    /// Replace the rows, scroll to the top and highlight the first pickable
+    /// row, as after filtering.
     pub(crate) fn set_rows(&self, rows: Vec<Row>) {
         *self.rows.borrow_mut() = rows;
         self.offset.set(0);
@@ -101,10 +124,13 @@ impl Choices {
         invalidate::invalidate();
     }
 
+    /// The highlighted row index, if any row is pickable.
     pub(crate) fn highlight(&self) -> Option<usize> {
         self.highlight.get()
     }
 
+    /// Highlight `index` and scroll it into view; an index that is out of
+    /// range or not pickable clears the highlight.
     pub(crate) fn set_highlight(&self, index: Option<usize>) {
         let index = index.filter(|&i| self.rows.borrow().get(i).is_some_and(Row::pickable));
         self.highlight.set(index);
@@ -112,6 +138,7 @@ impl Choices {
         invalidate::invalidate();
     }
 
+    /// How many rows there are, separators and disabled rows included.
     pub(crate) fn len(&self) -> usize {
         self.rows.borrow().len()
     }
@@ -121,7 +148,8 @@ impl Choices {
         self.highlight.set(first);
     }
 
-    /// Move the highlight by `delta` pickable rows, wrapping.
+    /// Move the highlight by `delta` pickable rows. Single steps wrap around
+    /// the ends; larger ones (pages, Home/End) stop at them.
     pub(crate) fn step(&self, delta: isize) {
         let rows = self.rows.borrow();
         let pickable: Vec<usize> = (0..rows.len()).filter(|&i| rows[i].pickable()).collect();
@@ -143,6 +171,7 @@ impl Choices {
         self.set_highlight(Some(pickable[next as usize]));
     }
 
+    /// Run the pick hook for `index`, if it is pickable.
     fn pick(&self, index: usize) {
         if !self.rows.borrow().get(index).is_some_and(Row::pickable) {
             return;
@@ -153,7 +182,7 @@ impl Choices {
         }
     }
 
-    /// Pick the highlighted row.
+    /// Pick the highlighted row; returns whether a row was highlighted.
     pub(crate) fn pick_highlighted(&self) -> bool {
         match self.highlight.get() {
             Some(index) => {
@@ -164,6 +193,7 @@ impl Choices {
         }
     }
 
+    /// Scroll the highlighted row into view, by the last rendered height.
     fn reveal(&self) {
         let (Some(h), height) = (self.highlight.get(), self.height.get().max(1)) else {
             return;

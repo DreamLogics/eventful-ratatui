@@ -54,7 +54,22 @@ fn log() -> std::sync::MutexGuard<'static, Log> {
 /// drop, including while a panic unwinds.
 ///
 /// [`crate::run_tui`] creates one; use it directly to drive your own loop.
-/// Only one guard should exist at a time.
+/// Only one guard should exist at a time. See the [module docs](self) for how
+/// it handles panics.
+///
+/// ```no_run
+/// use eventful_ratatui::{TerminalGuard, prelude::*};
+///
+/// # fn main() -> std::io::Result<()> {
+/// let mut guard = TerminalGuard::enter()?;
+/// guard.terminal().draw(|frame| {
+///     frame.render_widget("Hello! Press any key.", frame.area());
+/// })?;
+/// let _ = crossterm::event::read()?;
+/// // Dropping the guard restores the terminal.
+/// # Ok(())
+/// # }
+/// ```
 pub struct TerminalGuard {
     /// The terminal drawn to. Dropped before the terminal is restored.
     terminal: DefaultTerminal,
@@ -65,8 +80,13 @@ pub struct TerminalGuard {
 impl TerminalGuard {
     /// Install the panic hook, enable raw mode and enter the alternate screen.
     ///
+    /// The panic hook is installed once per process and stays; outside a
+    /// guard it defers to the previous hook.
+    ///
     /// # Errors
-    /// Fails if the terminal cannot be set up. Any partial setup is undone.
+    /// Returns the I/O error if raw mode cannot be enabled, the alternate
+    /// screen cannot be entered, or the terminal size cannot be read, as when
+    /// output is not a terminal. Any partial setup is undone.
     pub fn enter() -> io::Result<Self> {
         install_hooks();
         let active = Active::start();
@@ -80,15 +100,16 @@ impl TerminalGuard {
     }
 
     /// Report mouse events. Capture ends when the guard restores the
-    /// terminal.
+    /// terminal. While captured, the terminal's own text selection needs a
+    /// modifier, usually Shift.
     ///
     /// # Errors
-    /// Fails if the terminal cannot be written to.
+    /// Returns the I/O error if the terminal cannot be written to.
     pub fn capture_mouse(&mut self) -> io::Result<()> {
         execute!(stdout(), EnableMouseCapture)
     }
 
-    /// The terminal to draw to.
+    /// The terminal to draw to, a ratatui [`DefaultTerminal`] on stdout.
     pub fn terminal(&mut self) -> &mut DefaultTerminal {
         &mut self.terminal
     }

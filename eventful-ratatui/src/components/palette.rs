@@ -24,8 +24,14 @@ use std::{
 };
 
 /// A searchable list of commands at the top of the screen, like the
-/// Ctrl+Shift+P palette of editors. Typing filters by fuzzy match;
-/// Up/Down move, Enter runs, Esc or a click outside dismisses.
+/// Ctrl+Shift+P palette of editors.
+///
+/// Typing filters the commands: a command matches when the query's letters
+/// appear in its label in order, ignoring case, so `ofl` finds "Open file".
+/// Matches are sorted best first, favoring consecutive letters and word
+/// starts. Up/Down move, Enter runs, Esc or a click outside dismisses. The
+/// palette is a modal [`overlay`](crate::overlay); focus goes back where it
+/// was when it closes. Showing needs an async context on the UI shard:
 ///
 /// ```no_run
 /// # use eventful_ratatui::prelude::*;
@@ -41,25 +47,45 @@ use std::{
 ///     .await;
 /// # }
 /// ```
+///
+/// Driven in a test, as with [`Menu`](super::Menu):
+///
+/// ```
+/// use eventful_ratatui::{prelude::*, testing::Harness};
+/// use futures::FutureExt;
+///
+/// let mut ui = Harness::new(Label::new(""), 40, 10);
+/// let mut picked = Box::pin(
+///     CommandPalette::new()
+///         .command("open", "Open file")
+///         .command("quit", "Quit")
+///         .show(),
+/// );
+/// assert!((&mut picked).now_or_never().is_none());
+/// ui.render().type_text("ofl").key("enter");
+/// assert_eq!(picked.now_or_never(), Some(Some("open")));
+/// ```
 pub struct CommandPalette<T> {
     commands: Vec<(T, String, String)>,
     placeholder: String,
 }
 
 impl<T: Clone + 'static> CommandPalette<T> {
-    /// An empty palette.
+    /// An empty palette, with "Type a command…" in the search field.
     pub fn new() -> Self {
         Self {
             commands: Vec::new(),
             placeholder: "Type a command…".into(),
         }
     }
-    /// Add a command.
+    /// Add a command labelled `label` that returns `value`. Commands are
+    /// listed in the order added while the search is empty.
     pub fn command(mut self, value: T, label: impl Into<String>) -> Self {
         self.commands.push((value, label.into(), String::new()));
         self
     }
-    /// Add a command with right-aligned hint text, like its shortcut.
+    /// Add a command with right-aligned hint text, like its shortcut. Only
+    /// the label is searched.
     pub fn command_with_hint(
         mut self,
         value: T,
@@ -69,13 +95,15 @@ impl<T: Clone + 'static> CommandPalette<T> {
         self.commands.push((value, label.into(), hint.into()));
         self
     }
-    /// Text in the empty search field.
+    /// Text in the empty search field; "Type a command…" by default.
     pub fn placeholder(mut self, placeholder: impl Into<String>) -> Self {
         self.placeholder = placeholder.into();
         self
     }
 
-    /// Show the palette and wait for a command; `None` if dismissed.
+    /// Show the palette and wait for a command: the value of the command
+    /// run, or `None` if it was dismissed. Dropping the future closes the
+    /// palette.
     pub async fn show(self) -> Option<T> {
         let (values, entries): (Vec<T>, Vec<(String, String)>) = self
             .commands

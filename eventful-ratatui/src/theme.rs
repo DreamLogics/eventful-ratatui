@@ -38,8 +38,9 @@
 //! ```
 //!
 //! Every [`Palette`] field must be given, as `"#rrggbb"` or a color name.
-//! Binds (`blue := "#89b4fa"`) and references (`&self.palette.primary`)
-//! work as everywhere in CROL.
+//! Binds (`blue := "#89b4fa"`) and references work as everywhere in CROL;
+//! `&self` is the enclosing map, so inside `palette`, `ring: &self.primary`
+//! reuses the primary color.
 //!
 //! ```no_run
 //! use eventful_ratatui::{prelude::*, theme::ThemeFile};
@@ -53,6 +54,35 @@
 //! [`Tui::theme`](crate::Tui::theme) sets a fixed [`Theme`] instead.
 //! Components read [`current`] while rendering, and [`set`] switches at run
 //! time.
+//!
+//! # Drawing with the theme
+//!
+//! Custom components take their styles from the theme rather than picking
+//! colors, so they match the library's components and follow theme changes:
+//!
+//! ```
+//! use eventful_ratatui::{prelude::*, testing::Harness, theme::{Fill, Interaction}};
+//! use std::rc::Rc;
+//!
+//! /// A ghost button: no fill until focused or hovered.
+//! struct Action(&'static str);
+//! impl Component for Action {
+//!     fn render(&self, area: Rect, buf: &mut Buffer) {
+//!         let style = theme::current().fill(Fill::Ghost, Interaction::of(self));
+//!         Line::styled(self.0, style).render(area, buf);
+//!     }
+//!     fn focusable(&self) -> bool {
+//!         true
+//!     }
+//! }
+//!
+//! let mut ui = Harness::new(Rc::new(Action("Undo")), 4, 1);
+//! // Unfocused, it shows the screen background.
+//! assert_eq!(ui.buffer()[(0, 0)].bg, theme::current().palette.background);
+//! ui.key("tab");
+//! let focused = theme::current().fill(Fill::Ghost, Interaction::default().focused(true));
+//! assert_eq!(Some(ui.buffer()[(0, 0)].bg), focused.bg);
+//! ```
 use crate::{focus, mouse};
 use ratatui::{
     style::{Color, Modifier, Style},
@@ -88,7 +118,21 @@ pub(crate) const BACKDROP_DIM: u8 = 60;
 /// The base colors of a theme. Every state color is derived from these.
 ///
 /// New fields may be added in minor releases; start from an existing theme's
-/// palette and assign the fields you want to change.
+/// palette and assign the fields you want to change:
+///
+/// ```
+/// use eventful_ratatui::{prelude::*, theme::Theme};
+///
+/// let mut palette = Theme::default().palette;
+/// palette.primary = Color::Rgb(0xd9, 0x46, 0xef);
+/// palette.ring = palette.primary;
+/// let theme = Theme::new("Orchid", palette);
+/// assert_eq!(theme.palette.primary, Color::Rgb(0xd9, 0x46, 0xef));
+/// ```
+///
+/// Keep `*_foreground` colors readable on their fill, and `foreground` and
+/// `muted` readable on `background`, `surface` and `field`: aim for a
+/// contrast of 4.5:1 ([`color::contrast`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Palette {
@@ -140,7 +184,17 @@ pub enum Appearance {
 }
 
 impl Appearance {
-    /// The appearance whose background `background` is.
+    /// The appearance whose background `background` is: light when its
+    /// relative luminance is above 0.4 ([`color::is_light`]). Colors without
+    /// channels, like `Reset`, count as dark.
+    ///
+    /// ```
+    /// use eventful_ratatui::{prelude::*, theme::Appearance};
+    ///
+    /// assert_eq!(Appearance::of(Color::Rgb(0xfa, 0xfa, 0xfa)), Appearance::Light);
+    /// assert_eq!(Appearance::of(Color::Rgb(0x1e, 0x1e, 0x1e)), Appearance::Dark);
+    /// assert_eq!(Appearance::of(Color::Reset), Appearance::Dark);
+    /// ```
     pub fn of(background: Color) -> Self {
         if color::is_light(background) {
             Self::Light
@@ -159,7 +213,19 @@ impl Appearance {
     }
 }
 
-/// The interaction state a control is drawn in.
+/// The interaction state a control is drawn in, for the theme's state
+/// styles like [`Theme::fill`] and [`Theme::well`].
+///
+/// [`of`](Self::of) reads focus and hover from the last frame; the builder
+/// methods override them, for example to disable a control:
+///
+/// ```
+/// use eventful_ratatui::theme::Interaction;
+///
+/// let state = Interaction::default().focused(true);
+/// assert!(state.is_active());
+/// assert!(!state.disabled(true).is_active());
+/// ```
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Interaction {
@@ -197,13 +263,13 @@ impl Interaction {
         self.hovered = hovered;
         self
     }
-    /// Focused or hovered: the control is active.
+    /// Focused or hovered, and not disabled: the control is active.
     pub fn is_active(self) -> bool {
         !self.disabled && (self.focused || self.hovered)
     }
 }
 
-/// The fill of a control, from loudest to quietest.
+/// The fill of a control, from loudest to quietest. See [`Theme::fill`].
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Fill {
@@ -218,7 +284,8 @@ pub enum Fill {
     Ghost,
 }
 
-/// A color role for status: badges, toasts, progress.
+/// A color role for status: badges, toasts, progress. [`Theme::tone`] maps
+/// it to a palette color.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Tone {
@@ -238,6 +305,25 @@ pub enum Tone {
 }
 
 /// A palette plus the symbols and border shape components draw with.
+///
+/// The default is the built-in theme over [`TerminalColors::default`]. Make
+/// one with [`Theme::new`], [`Theme::from_terminal`] or
+/// [`ThemeFile::load`], adjust its public fields, and install it with
+/// [`set`] or [`Tui::theme`](crate::Tui::theme):
+///
+/// ```
+/// use eventful_ratatui::{prelude::*, theme::{Symbols, Theme}};
+///
+/// // For terminals or fonts without box drawing.
+/// let mut theme = Theme::default();
+/// theme.symbols = Symbols::ascii();
+/// theme.border_type = BorderType::Plain;
+/// let tui = Tui::new().theme(theme);
+/// ```
+///
+/// The style methods give the style for each role; components draw with
+/// them, and custom components should too (see the
+/// [module docs](self#drawing-with-the-theme)).
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct Theme {
@@ -245,13 +331,14 @@ pub struct Theme {
     pub name: String,
     /// The base colors.
     pub palette: Palette,
-    /// The border shape of containers and overlays.
+    /// The border shape of containers and overlays. Rounded by default.
     pub border_type: BorderType,
     /// Symbols for checkboxes, radios and the like.
     pub symbols: Symbols,
 }
 
-/// The symbols components draw with.
+/// The symbols components draw with. The default uses Unicode box drawing,
+/// geometric shapes and braille; [`ascii`](Self::ascii) is the fallback.
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct Symbols {
@@ -337,7 +424,8 @@ impl Default for Theme {
 }
 
 impl Theme {
-    /// A theme named `name` over `palette`, with the default symbols.
+    /// A theme named `name` over `palette`, with the default symbols and
+    /// rounded borders. See [`Palette`] for an example.
     pub fn new(name: impl Into<String>, palette: Palette) -> Self {
         Self {
             name: name.into(),
@@ -390,7 +478,16 @@ impl Theme {
             DISABLED_DIM,
         ))
     }
-    /// The color of `tone`.
+    /// The color of `tone`: `muted` for neutral, `destructive` for errors,
+    /// and the palette color of the same name otherwise.
+    ///
+    /// ```
+    /// use eventful_ratatui::theme::{Theme, Tone};
+    ///
+    /// let theme = Theme::default();
+    /// assert_eq!(theme.tone(Tone::Error), theme.palette.destructive);
+    /// assert_eq!(theme.tone(Tone::Neutral), theme.palette.muted);
+    /// ```
     pub fn tone(&self, tone: Tone) -> Color {
         let p = &self.palette;
         match tone {
@@ -421,7 +518,8 @@ impl Theme {
 
     // ---- Lines -----------------------------------------------------------
 
-    /// A container border: the ring color while it holds the focus.
+    /// A container border: the ring color while it holds the focus. Pass
+    /// [`focus::within`] of the container for `focused`.
     pub fn border(&self, focused: bool) -> Style {
         Style::new().fg(if focused {
             self.palette.ring
@@ -440,7 +538,8 @@ impl Theme {
     }
 
     /// The background of a well in `state`: `field`, lifted on focus and
-    /// further on hover.
+    /// further on hover, and blended toward the background when disabled.
+    /// Lifts are reduced where they would cost the text too much contrast.
     pub fn well_color(&self, state: Interaction) -> Color {
         let p = &self.palette;
         if state.disabled {
@@ -468,7 +567,19 @@ impl Theme {
         blend(base, away, amount)
     }
 
-    /// A well in `state`: inputs, lists, tracks.
+    /// A well in `state`: inputs, lists, tracks. The background is
+    /// [`well_color`](Self::well_color), with the foreground dimmed when
+    /// disabled.
+    ///
+    /// ```
+    /// use eventful_ratatui::theme::{Interaction, Theme};
+    ///
+    /// let theme = Theme::default();
+    /// let rest = theme.well(Interaction::default());
+    /// let hovered = theme.well(Interaction::default().hovered(true));
+    /// assert_eq!(rest.bg, Some(theme.palette.field));
+    /// assert_ne!(hovered.bg, rest.bg);
+    /// ```
     pub fn well(&self, state: Interaction) -> Style {
         let fg = if state.disabled {
             blend(self.palette.muted, self.palette.background, DISABLED_DIM)
@@ -511,6 +622,25 @@ impl Theme {
     /// A filled control, like a button, in `state`. A ghost fill is the
     /// background it is drawn on until focused or hovered; check
     /// [`Style::bg`] for `None`.
+    ///
+    /// Focus and hover shift the fill away from its lightness, hover more
+    /// than focus, while keeping the label readable; focus also makes the
+    /// label bold. Disabled fills blend toward the background.
+    ///
+    /// ```
+    /// use eventful_ratatui::{prelude::*, theme::{Fill, Interaction, Theme}};
+    ///
+    /// let theme = Theme::default();
+    /// let rest = theme.fill(Fill::Primary, Interaction::default());
+    /// assert_eq!(rest.bg, Some(theme.palette.primary));
+    /// assert_eq!(rest.fg, Some(theme.palette.primary_foreground));
+    ///
+    /// let focused = theme.fill(Fill::Primary, Interaction::default().focused(true));
+    /// assert_ne!(focused.bg, rest.bg);
+    /// assert!(focused.add_modifier.contains(Modifier::BOLD));
+    ///
+    /// assert_eq!(theme.fill(Fill::Ghost, Interaction::default()).bg, None);
+    /// ```
     pub fn fill(&self, fill: Fill, state: Interaction) -> Style {
         let p = &self.palette;
         let (bg, fg) = match fill {
@@ -582,12 +712,29 @@ thread_local! {
     static CURRENT: RefCell<Rc<Theme>> = RefCell::new(Rc::new(Theme::default()));
 }
 
-/// The theme of this thread's loop.
+/// The theme of this thread's loop: [`Theme::default`] until one is set.
+/// Read it in `render`; it is cheap to call.
+///
+/// ```
+/// use eventful_ratatui::{prelude::*, theme::{Symbols, Theme}};
+///
+/// let mut ascii = Theme::default();
+/// ascii.symbols = Symbols::ascii();
+/// theme::set(ascii);
+/// assert_eq!(theme::current().symbols.checkbox, ["[ ]", "[x]"]);
+/// ```
 pub fn current() -> Rc<Theme> {
     CURRENT.with_borrow(Rc::clone)
 }
 
-/// Replace the theme of this thread's loop, and redraw.
+/// Replace the theme of this thread's loop, and redraw. Use it to switch
+/// themes at run time, for a theme picker; the change shows in the next
+/// frame. See [`current`] for an example.
+///
+/// Themes are per thread: call it on the UI shard. A loop started with
+/// [`Tui::theme`](crate::Tui::theme) or
+/// [`Tui::theme_file`](crate::Tui::theme_file) sets its theme when it starts,
+/// replacing an earlier `set`.
 pub fn set(theme: Theme) {
     let _old = CURRENT.replace(Rc::new(theme));
     crate::invalidate::invalidate();

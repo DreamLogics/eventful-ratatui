@@ -12,6 +12,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   whose visual design the components follow and whose theme colors and tuning
   several themes use, and the color schemes the themes are built on. The
   crate packages now also contain the license texts.
+- Doctest examples for every component and core entry point, and fuller
+  documentation throughout.
+
+### Changed
+
+- **Key chords**: with a modifier other than shift, a letter's case is
+  ignored, so `"Ctrl+S"` is ctrl+s rather than ctrl+shift+s; write
+  `"ctrl+shift+s"` for that. A capital letter on its own still means shift
+  (`"G"`). `KeyChord`'s `Display` writes `ctrl+shift+s` instead of `ctrl+S`,
+  and `#[key_events]` parses chords the same way.
+- **Focus**: a focused component that stops being focusable, like a button
+  that is disabled, passes focus to the next focusable component in its
+  layer, or clears focus if there is none.
+
+### Fixed
+
+- `Tree::set_roots` clears the selection when the selected node is gone, as
+  documented, instead of keeping a stale id.
 
 ## [0.1.0] - 2026-11-10
 

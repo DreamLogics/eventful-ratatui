@@ -47,6 +47,28 @@ handle! {
     /// A click places the cursor and a drag selects. Every edit emits
     /// [`changed`](super::TextEventsSignalsExt::changed). Editing works by
     /// grapheme cluster and display width, so emoji and CJK text behave.
+    ///
+    /// The text sits in a one-row well with a cell of padding on either side
+    /// and scrolls horizontally to keep the cursor visible. While focused it
+    /// places the terminal cursor. A disabled input is not focusable and
+    /// ignores input.
+    ///
+    /// ```
+    /// use eventful_ratatui::{components::TextInput, testing::Harness};
+    ///
+    /// let name = TextInput::new().placeholder("Name");
+    /// let mut ui = Harness::new(name.clone(), 12, 1);
+    /// assert_eq!(ui.lines(), [" Name"]);
+    ///
+    /// ui.key("tab").type_text("Ada Lovelace");
+    /// // Scrolled so the cursor at the end stays visible.
+    /// assert_eq!(ui.lines(), ["  Lovelace"]);
+    /// ui.key("ctrl+w");
+    /// assert_eq!(name.text(), "Ada ");
+    /// ```
+    ///
+    /// Read the text with [`text`](Self::text) at any time, or connect
+    /// [`changed`](super::TextEventsSignalsExt::changed) to react to edits.
     TextInput(State), events = (TextEventsEventSet, TextEventsSignalsExt)
 }
 
@@ -75,7 +97,8 @@ pub struct State {
 }
 
 impl TextInput {
-    /// An empty input.
+    /// An empty, enabled input with no placeholder, length limit or
+    /// validator.
     pub fn new() -> Self {
         Self(Rc::new(State {
             text: RefCell::default(),
@@ -99,24 +122,46 @@ impl TextInput {
         self.set_text(text);
         self
     }
-    /// Text shown while the input is empty.
+    /// Text shown, dimmed, while the input is empty; it is never part of
+    /// [`text`](Self::text).
     pub fn placeholder(self, placeholder: impl Into<String>) -> Self {
         *self.0.placeholder.borrow_mut() = placeholder.into();
         self
     }
-    /// Show every character as the theme's mask symbol, for passwords.
+    /// Show every character as the theme's mask symbol, for passwords. The
+    /// symbol is read from the [current theme](crate::theme::current) when
+    /// this is called. [`text`](Self::text) still returns the real text.
     pub fn password(self) -> Self {
         self.0.mask.set(Some(theme::current().symbols.mask));
         self
     }
-    /// Refuse input beyond `max` characters.
+    /// Refuse input beyond `max` characters (Unicode scalar values, so an
+    /// emoji sequence can count as several).
+    /// Typing and pasting stop at the limit; text set with
+    /// [`set_text`](Self::set_text) is not cut.
     pub fn max_chars(self, max: usize) -> Self {
         self.0.max_chars.set(Some(max));
         self
     }
-    /// Check the text after every change. The error message is available
-    /// through [`error`](Self::error), and the text is drawn in the error
-    /// style while invalid.
+    /// Check the text after every change, including
+    /// [`set_text`](Self::set_text). `validate` returns `Err` with a message
+    /// for invalid text.
+    ///
+    /// The message is available through [`error`](Self::error), and the text
+    /// is drawn in the error style while invalid. The current text is checked
+    /// right away. Invalid text is still accepted: the validator reports, it
+    /// does not refuse edits.
+    ///
+    /// ```
+    /// use eventful_ratatui::components::TextInput;
+    ///
+    /// let port = TextInput::new().value("80a").validator(|text| {
+    ///     text.parse::<u16>().map(drop).map_err(|_| "not a port".to_owned())
+    /// });
+    /// assert_eq!(port.error().as_deref(), Some("not a port"));
+    /// port.set_text("8080");
+    /// assert!(port.is_valid());
+    /// ```
     pub fn validator(self, validate: impl Fn(&str) -> Result<(), String> + 'static) -> Self {
         *self.0.validator.borrow_mut() = Some(Box::new(validate));
         self.0.validate();
@@ -148,15 +193,18 @@ impl TextInput {
     pub fn is_valid(&self) -> bool {
         self.0.error.borrow().is_none()
     }
-    /// The cursor as a byte offset into the text.
+    /// The cursor as a byte offset into the text, always on a grapheme
+    /// boundary.
     pub fn cursor(&self) -> usize {
         self.0.cursor.get()
     }
-    /// The selected byte range, if anything is selected.
+    /// The selected byte range, start before end, if anything is selected.
+    /// An empty selection is `None`.
     pub fn selection(&self) -> Option<Range<usize>> {
         self.0.selection()
     }
-    /// Select everything.
+    /// Select everything, with the cursor at the end. Typing then replaces
+    /// the text.
     pub fn select_all(&self) {
         self.0.anchor.set(Some(0));
         self.0.cursor.set(self.0.text.borrow().len());
@@ -170,7 +218,10 @@ impl TextInput {
     pub fn is_enabled(&self) -> bool {
         self.0.enabled.get()
     }
-    /// Enable or disable it.
+    /// Enable or disable it. A disabled input is drawn in the disabled style,
+    /// skipped by Tab and ignores keys and clicks; its text can still be set.
+    /// Disabling it while it has focus moves focus to the next focusable
+    /// component; see [`focus`](crate::focus).
     pub fn set_enabled(&self, enabled: bool) {
         self.0.enabled.set(enabled);
         invalidate::invalidate();

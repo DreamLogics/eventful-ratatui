@@ -20,10 +20,31 @@ use std::{
 };
 
 handle! {
-    /// Collapsible sections, each a header and content. The headers take
-    /// focus: Enter, Space or a click toggles a section, Up/Down move between
-    /// headers. With [`exclusive`](Self::exclusive), opening one closes the
-    /// others.
+    /// Collapsible sections, each a header and content.
+    ///
+    /// The headers take focus as one Tab stop: Up/Down move between headers,
+    /// and Enter, Space or a click toggles a section. With
+    /// [`exclusive`](Self::exclusive), opening one closes the others. Open
+    /// sections are indented under their header and share the rows left over
+    /// after all headers; the last open section takes whatever remains.
+    ///
+    /// ```
+    /// use eventful_ratatui::{prelude::*, testing::Harness};
+    ///
+    /// let settings = Accordion::new()
+    ///     .section("General", Label::new("general settings"))
+    ///     .section("Advanced", Label::new("advanced settings"))
+    ///     .exclusive();
+    /// let mut ui = Harness::new(settings.clone(), 24, 3);
+    /// assert_eq!(ui.lines(), [" ▸ General", " ▸ Advanced", ""]);
+    ///
+    /// ui.key("tab").key("enter");
+    /// assert_eq!(ui.lines(), [" ▾ General", "   general settings", " ▸ Advanced"]);
+    ///
+    /// // Exclusive: opening Advanced closes General.
+    /// settings.set_open(1, true);
+    /// assert!(!settings.is_open(0) && settings.is_open(1));
+    /// ```
     Accordion(State)
 }
 
@@ -44,7 +65,7 @@ struct Section {
 }
 
 impl Accordion {
-    /// No sections yet.
+    /// No sections yet. An empty accordion takes no focus.
     pub fn new() -> Self {
         Self(Rc::new(State {
             sections: RefCell::default(),
@@ -53,7 +74,8 @@ impl Accordion {
             headers: RefCell::default(),
         }))
     }
-    /// Add a closed section.
+    /// Add a closed section below the others: a header showing `title`, and
+    /// `content` shown under it while open.
     pub fn section(self, title: impl Into<String>, content: impl Component + 'static) -> Self {
         self.0.sections.borrow_mut().push(Section {
             title: title.into(),
@@ -62,16 +84,20 @@ impl Accordion {
         });
         self
     }
-    /// Let only one section be open at a time.
+    /// Let only one section be open at a time: opening a section, by the
+    /// user or with [`set_open`](Self::set_open), closes the others.
     pub fn exclusive(self) -> Self {
         self.0.exclusive.set(true);
         self
     }
-    /// Open or close section `index`.
+    /// Open or close section `index`, counted from 0 in the order added.
+    /// Indices past the end are ignored.
+    ///
+    /// If focus is inside a section that closes, it moves to the headers.
     pub fn set_open(&self, index: usize, open: bool) {
         self.0.set_open(index, open);
     }
-    /// Whether section `index` is open.
+    /// Whether section `index` is open; `false` past the end.
     pub fn is_open(&self, index: usize) -> bool {
         self.0.sections.borrow().get(index).is_some_and(|s| s.open)
     }

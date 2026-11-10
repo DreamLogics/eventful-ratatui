@@ -7,7 +7,7 @@ use ratatui::{Terminal, backend::TestBackend, buffer::Buffer, layout::Rect};
 use std::{cell::RefCell, io};
 
 /// Every chord form, so the macro's parser is checked against the runtime's.
-const CHORDS: [&str; 15] = [
+const CHORDS: [&str; 16] = [
     "j",
     "J",
     "shift+k",
@@ -23,6 +23,7 @@ const CHORDS: [&str; 15] = [
     "PageDown",
     "meta+super+hyper+home",
     "ESC",
+    "Ctrl+Q",
 ];
 
 #[key_events]
@@ -41,7 +42,7 @@ trait Every {
     #[key("space")]
     fn second(&self);
     #[key("alt+plus")]
-    #[key("f5", "PageDown", "meta+super+hyper+home", "ESC")]
+    #[key("f5", "PageDown", "meta+super+hyper+home", "ESC", "Ctrl+Q")]
     fn third(&self);
 }
 
@@ -51,7 +52,7 @@ fn chords_match_the_runtime_parser() {
     let parsed: Vec<KeyChord> = CHORDS.iter().map(|c| c.parse().unwrap()).collect();
     assert_eq!(generated, parsed);
     let names: Vec<&str> = EveryBridge::BINDINGS.iter().map(|(_, n)| *n).collect();
-    let expected = [["first"; 7].as_slice(), &["second"; 3], &["third"; 5]].concat();
+    let expected = [["first"; 7].as_slice(), &["second"; 3], &["third"; 6]].concat();
     assert_eq!(names, expected);
 }
 

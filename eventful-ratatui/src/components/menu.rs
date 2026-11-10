@@ -14,8 +14,12 @@ use std::{
 ///
 /// Up/Down move, Enter picks, a letter jumps to the next item starting with
 /// it, the mouse highlights on hover and picks on click, and Esc or a click
-/// outside dismisses. Use [`show_at`](Self::show_at) for a context menu at
-/// the pointer.
+/// outside dismisses. Separators and disabled items are skipped. Use
+/// [`show_at`](Self::show_at) for a context menu at the pointer.
+///
+/// The menu opens as an [`overlay`](crate::overlay) and takes focus while
+/// open; focus goes back where it was when it closes. Showing needs an async
+/// context on the UI shard, like a task spawned with `ShardRc::spawn_owned`:
 ///
 /// ```no_run
 /// # use eventful_ratatui::prelude::*;
@@ -32,6 +36,26 @@ use std::{
 ///     .await;
 /// # }
 /// ```
+///
+/// In tests, poll the future once to open the menu, then drive it with a
+/// [`Harness`](crate::testing::Harness):
+///
+/// ```
+/// use eventful_ratatui::{prelude::*, testing::Harness};
+/// use futures::FutureExt;
+///
+/// let mut ui = Harness::new(Label::new(""), 30, 8);
+/// let mut picked = Box::pin(
+///     Menu::new()
+///         .item("cut", "Cut")
+///         .disabled_item("copy", "Copy")
+///         .item("paste", "Paste")
+///         .show_at(Position::new(2, 1)),
+/// );
+/// assert!((&mut picked).now_or_never().is_none(), "open, waiting for a pick");
+/// ui.render().key("down").key("enter");
+/// assert_eq!(picked.now_or_never(), Some(Some("paste")), "Copy is skipped");
+/// ```
 pub struct Menu<T> {
     items: Vec<(Option<T>, Row)>,
 }
@@ -41,7 +65,7 @@ impl<T: Clone + 'static> Menu<T> {
     pub fn new() -> Self {
         Self { items: Vec::new() }
     }
-    /// Add an item picking `value`.
+    /// Add an item labelled `label` that picks `value`.
     pub fn item(mut self, value: T, label: impl Into<Line<'static>>) -> Self {
         self.items.push((Some(value), Row::new(label)));
         self
@@ -58,7 +82,7 @@ impl<T: Clone + 'static> Menu<T> {
         self.items.push((Some(value), row));
         self
     }
-    /// Add an item that is shown but cannot be picked.
+    /// Add an item that is shown dimmed and cannot be picked or highlighted.
     pub fn disabled_item(mut self, value: T, label: impl Into<Line<'static>>) -> Self {
         let mut row = Row::new(label);
         row.enabled = false;
@@ -70,7 +94,12 @@ impl<T: Clone + 'static> Menu<T> {
         self.items.push((None, Row::separator()));
         self
     }
-    /// Show the menu and wait for a pick; `None` if dismissed.
+    /// Show the menu at `placement` and wait for a pick: the value of the
+    /// picked item, or `None` if it was dismissed. Dropping the future
+    /// closes the menu.
+    ///
+    /// With [`Placement::Below`], the menu is at least as wide as the
+    /// anchor, like a dropdown under a button.
     pub async fn show(self, placement: Placement) -> Option<T> {
         let (values, rows): (Vec<Option<T>>, Vec<Row>) = self.items.into_iter().unzip();
         let choices = Choices::new(rows, true, true);
