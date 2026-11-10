@@ -149,6 +149,8 @@ impl Button {
     }
     /// Enable or disable it. A disabled button draws dimmed and ignores
     /// input, and Tab skips it.
+    /// Disabling it while it has focus moves focus to the next focusable
+    /// component; see [`focus`](crate::focus).
     pub fn set_enabled(&self, enabled: bool) {
         self.0.enabled.set(enabled);
         invalidate::invalidate();

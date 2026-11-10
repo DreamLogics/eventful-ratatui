@@ -40,6 +40,37 @@ fn buttons_render_focus_and_click() {
 }
 
 #[test]
+fn a_disabled_button_gives_up_focus() {
+    let (a, b, c) = (Button::new("A"), Button::new("B"), Button::new("C"));
+    let column = Column(vec![
+        Rc::new(a.clone()),
+        Rc::new(b.clone()),
+        Rc::new(c.clone()),
+    ]);
+    let mut ui = Harness::new(column, 8, 3);
+    ui.click(1, 1);
+    assert!(b.is_focused());
+    b.set_enabled(false);
+    ui.render();
+    assert!(
+        c.is_focused(),
+        "focus moves to the next focusable component"
+    );
+    c.set_enabled(false);
+    ui.render();
+    assert!(a.is_focused(), "and wraps around");
+    a.set_enabled(false);
+    ui.render();
+    assert!(
+        focus::focused().is_none(),
+        "with nothing left, focus clears"
+    );
+    b.set_enabled(true);
+    ui.render();
+    assert!(!b.is_focused(), "re-enabling does not take focus back");
+}
+
+#[test]
 fn checkboxes_and_switches_toggle() {
     let check = Checkbox::new("Bold");
     let switch = Switch::new("Wifi").checked(true);

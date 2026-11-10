@@ -178,6 +178,8 @@ impl List {
     }
     /// Enable or disable it. A disabled list is drawn in the disabled style,
     /// skipped by Tab and ignores keys and clicks.
+    /// Disabling it while it has focus moves focus to the next focusable
+    /// component; see [`focus`](crate::focus).
     pub fn set_enabled(&self, enabled: bool) {
         self.0.enabled.set(enabled);
         invalidate::invalidate();

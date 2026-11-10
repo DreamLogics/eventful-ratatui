@@ -208,6 +208,8 @@ macro_rules! toggle_api {
             }
             /// Enable or disable it. Disabled, it draws dimmed, ignores
             /// input, and Tab skips it.
+            /// Disabling it while it has focus moves focus to the next focusable
+            /// component; see [`focus`](crate::focus).
             pub fn set_enabled(&self, enabled: bool) {
                 self.0.enabled.set(enabled);
                 invalidate::invalidate();

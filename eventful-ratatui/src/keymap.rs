@@ -53,8 +53,11 @@ use std::{fmt, str::FromStr};
 /// `hyper` and `meta`. Keys are a single character or one of `enter`, `esc`,
 /// `tab`, `backtab`, `backspace`, `delete`, `insert`, `home`, `end`,
 /// `pageup`, `pagedown`, `up`, `down`, `left`, `right`, `space`, `plus` and
-/// `f1`–`f24`. Names are case-insensitive; characters are not, and `"J"`
-/// means shift+j.
+/// `f1`–`f24`. Names are case-insensitive. A character on its own is
+/// case-sensitive, so `"J"` means shift+j, as in vi-style bindings like `"G"`.
+/// With any modifier other than shift, a letter's case is ignored: `"Ctrl+S"`
+/// is ctrl+s, as in the menus of desktop applications, and ctrl+shift+s is
+/// written `"ctrl+shift+s"`.
 ///
 /// Some names have aliases: `control`, `option` (alt), `cmd` (super),
 /// `return`, `escape`, `del`, `ins`, `pgup` and `pgdn`. A trailing `+` is the
@@ -65,14 +68,19 @@ use std::{fmt, str::FromStr};
 /// ```
 /// use eventful_ratatui::prelude::*;
 ///
-/// // Names are case-insensitive...
-/// let save: KeyChord = "Ctrl+s".parse()?;
+/// let save: KeyChord = "Ctrl+S".parse()?;
 /// assert_eq!(save, KeyChord::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+/// assert_eq!(save, "ctrl+s".parse()?);
 /// assert_eq!(save.to_string(), "ctrl+s");
-/// // ...characters are not: this is ctrl+shift+s.
-/// assert_ne!("ctrl+S".parse::<KeyChord>()?, save);
 ///
+/// // Shift is explicit next to other modifiers...
+/// let save_as: KeyChord = "ctrl+shift+s".parse()?;
+/// assert_ne!(save_as, save);
+/// assert_eq!(save_as.to_string(), "ctrl+shift+s");
+///
+/// // ...and implied by a capital letter on its own.
 /// assert_eq!("shift+j".parse::<KeyChord>()?, "J".parse()?);
+/// assert_eq!("J".parse::<KeyChord>()?.to_string(), "J");
 /// assert_eq!("shift+tab".parse::<KeyChord>()?.code(), KeyCode::BackTab);
 /// assert!("ctrl+nope".parse::<KeyChord>().is_err());
 /// # Ok::<(), eventful_ratatui::keymap::ParseKeyChordError>(())
@@ -188,6 +196,14 @@ impl FromStr for KeyChord {
                 },
             },
         };
+        // Next to ctrl, alt and the like, a letter names the key, not the
+        // character: "Ctrl+S" is ctrl+s, and shift has to be spelled out.
+        let code = match code {
+            KeyCode::Char(c) if !(modifiers - KeyModifiers::SHIFT).is_empty() => {
+                KeyCode::Char(c.to_ascii_lowercase())
+            }
+            code => code,
+        };
         Ok(Self::new(code, modifiers))
     }
 }
@@ -202,6 +218,17 @@ impl TryFrom<&str> for KeyChord {
 
 impl fmt::Display for KeyChord {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // A folded shift is written out next to other modifiers, because
+        // the parser ignores a letter's case there.
+        let mut modifiers = self.modifiers;
+        let mut code = self.code;
+        if let KeyCode::Char(c) = code
+            && c.is_ascii_uppercase()
+            && !modifiers.is_empty()
+        {
+            modifiers |= KeyModifiers::SHIFT;
+            code = KeyCode::Char(c.to_ascii_lowercase());
+        }
         for (modifier, name) in [
             (KeyModifiers::CONTROL, "ctrl"),
             (KeyModifiers::ALT, "alt"),
@@ -210,11 +237,11 @@ impl fmt::Display for KeyChord {
             (KeyModifiers::HYPER, "hyper"),
             (KeyModifiers::META, "meta"),
         ] {
-            if self.modifiers.contains(modifier) {
+            if modifiers.contains(modifier) {
                 write!(f, "{name}+")?;
             }
         }
-        match self.code {
+        match code {
             KeyCode::Char(' ') => f.write_str("space"),
             KeyCode::Char(c) => write!(f, "{c}"),
             KeyCode::F(n) => write!(f, "f{n}"),

@@ -6,6 +6,12 @@
 //! component first, then bubbles through the components that rendered it, then
 //! to the root. With nothing focused, the root gets every key.
 //!
+//! A focused component that stops being focusable, like a button that was
+//! just disabled, loses focus after the next frame: it moves to the next
+//! focusable component in the same layer, wrapping around, or is cleared if
+//! there is none. Components that were never focusable keep focus given to
+//! them with [`set`].
+//!
 //! Overlays scope the traversal: while a modal dialog or a menu is open, Tab
 //! stays inside it. See [`crate::overlay`].
 //!
@@ -45,6 +51,9 @@ struct State {
     focused: Option<ComponentRef>,
     /// A component asked for focus before it was first rendered.
     pending: Option<*const ()>,
+    /// The focused component as of the last frame, and whether it was
+    /// focusable then: focus moves on when it stops being focusable.
+    seen: Option<(*const (), bool)>,
 }
 
 thread_local! {
@@ -286,14 +295,49 @@ pub(crate) fn restore(saved: Option<ComponentRef>) {
     }
 }
 
-/// Resolve a pending focus request against the frame just rendered.
+/// After a frame: resolve a pending focus request, and move focus on if the
+/// focused component stopped being focusable, like a button just disabled.
 pub(crate) fn end_frame() {
-    let Some(addr) = STATE.with_borrow(|state| state.pending) else {
+    if let Some(addr) = STATE.with_borrow(|state| state.pending) {
+        let target =
+            tree::with_last(|nodes| tree::find(nodes, addr).map(|i| nodes[i].target.clone()));
+        if let Some(target) = target {
+            focus_ref(target);
+        }
+    }
+    let Some(focused) = focused() else {
         return;
     };
-    let target = tree::with_last(|nodes| tree::find(nodes, addr).map(|i| nodes[i].target.clone()));
-    if let Some(target) = target {
-        focus_ref(target);
+    let addr = focused.addr();
+    // Only a change counts: overlays and applications may focus components
+    // that are never focusable, and those keep focus.
+    let Some((focusable, successor)) = tree::with_last(|nodes| {
+        let index = tree::find(nodes, addr)?;
+        let node = &nodes[index];
+        if node.focusable {
+            return Some((true, None));
+        }
+        // The next focusable component in the same layer, wrapping around.
+        let successor = nodes[index + 1..]
+            .iter()
+            .chain(&nodes[..index])
+            .find(|n| n.focusable && n.layer == node.layer)
+            .map(|n| n.target.clone());
+        Some((false, successor))
+    }) else {
+        // Not rendered this frame: keep focus, it may be rendered again.
+        return;
+    };
+    let lost = STATE.with_borrow_mut(|state| {
+        let lost = state.seen == Some((addr, true)) && !focusable;
+        state.seen = Some((addr, focusable));
+        lost
+    });
+    if lost {
+        match successor {
+            Some(target) => focus_ref(target),
+            None => clear(),
+        }
     }
 }
 
