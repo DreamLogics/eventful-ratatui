@@ -131,7 +131,7 @@ pub use table::{Column, Table};
 pub use tabs::Tabs;
 pub use text_area::TextArea;
 pub use text_input::TextInput;
-pub use toast::{Toast, ToastKind};
+pub use toast::Toast;
 pub use toggle::{Checkbox, Switch};
 pub use tree::{Tree, TreeNode};
 

@@ -2,7 +2,7 @@
 use crate::{
     Component, Handled, invalidate, mouse,
     overlay::{Closer, Placement, overlay},
-    theme,
+    theme::{self, Tone},
 };
 use crossterm::event::Event;
 use ratatui::{
@@ -19,21 +19,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// What a toast reports; picks its color.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum ToastKind {
-    /// Neutral information.
-    #[default]
-    Info,
-    /// Something worked.
-    Success,
-    /// Something needs attention.
-    Warning,
-    /// Something failed.
-    Error,
-}
-
 /// A short notification in the bottom-right corner that disappears by
 /// itself. Toasts stack, take no focus, and close early on a click.
 ///
@@ -46,34 +31,35 @@ pub enum ToastKind {
 #[derive(Clone, Debug)]
 pub struct Toast {
     message: String,
-    kind: ToastKind,
+    tone: Tone,
     duration: Duration,
 }
 
 impl Toast {
-    /// A toast of `kind` saying `message`, shown for four seconds.
-    pub fn new(kind: ToastKind, message: impl Into<String>) -> Self {
+    /// A toast in `tone` saying `message`, shown for four seconds. The tone
+    /// colors its border and marker.
+    pub fn new(tone: Tone, message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
-            kind,
+            tone,
             duration: Duration::from_secs(4),
         }
     }
     /// Neutral information.
     pub fn info(message: impl Into<String>) -> Self {
-        Self::new(ToastKind::Info, message)
+        Self::new(Tone::Info, message)
     }
     /// Something worked.
     pub fn success(message: impl Into<String>) -> Self {
-        Self::new(ToastKind::Success, message)
+        Self::new(Tone::Success, message)
     }
     /// Something needs attention.
     pub fn warning(message: impl Into<String>) -> Self {
-        Self::new(ToastKind::Warning, message)
+        Self::new(Tone::Warning, message)
     }
     /// Something failed.
     pub fn error(message: impl Into<String>) -> Self {
-        Self::new(ToastKind::Error, message)
+        Self::new(Tone::Error, message)
     }
     /// How long it stays.
     pub fn duration(mut self, duration: Duration) -> Self {
@@ -123,14 +109,8 @@ fn message_width(toast: &Toast) -> u16 {
 struct Toaster;
 
 impl Toaster {
-    fn style(kind: ToastKind) -> Style {
-        let theme = theme::current();
-        match kind {
-            ToastKind::Info => theme.info(),
-            ToastKind::Success => theme.success(),
-            ToastKind::Warning => theme.warning(),
-            ToastKind::Error => theme.error(),
-        }
+    fn style(tone: Tone) -> Style {
+        Style::new().fg(theme::current().tone(tone))
     }
     /// Height of each toast's box for an inner `width`.
     fn heights(width: u16) -> Vec<u16> {
@@ -175,7 +155,7 @@ impl Component for Toaster {
                 break;
             };
             let rect = Rect::new(area.x, top, area.width, height);
-            let style = Self::style(toast.kind);
+            let style = Self::style(toast.tone);
             Paragraph::new(Line::from(vec![
                 Span::styled("● ", style),
                 Span::styled(toast.message.as_str(), theme.text()),

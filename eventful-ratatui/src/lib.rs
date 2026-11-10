@@ -10,9 +10,10 @@
 //! - [`Component`]: the trait to write your own, rendered with ratatui.
 //! - [`focus`], [`mouse`] and [`overlay`]: keyboard focus with Tab order,
 //!   mouse routing, and layered popups, driven by the frame's render tree.
-//! - [`theme`]: a palette with dark and light presets; state colors for
-//!   focus, hover and disabled are derived from it. The loop picks the dark
-//!   or light default by asking the terminal for its background.
+//! - [`theme`]: a palette from which focus, hover and disabled colors are
+//!   derived. The built-in theme is generated from the terminal's own 16
+//!   colors; other themes load from CROL files with `<dark>` and `<light>`
+//!   variants.
 //! - [`run_tui`] and [`Tui`]: the loop; [`testing::Harness`] drives
 //!   components without a terminal.
 //!

@@ -7,7 +7,7 @@ use crate::{
     Component, Result, TerminalGuard,
     dispatch::{Dispatcher, Session},
     invalidate,
-    theme::{self, Theme},
+    theme::{self, Appearance, TerminalColors, Theme, ThemeFile},
 };
 use crossterm::event::{Event, EventStream};
 use futures::{FutureExt, Stream, StreamExt, future::poll_fn, task::AtomicWaker};
@@ -42,10 +42,23 @@ pub struct Tui {
     /// Route mouse events by hit-testing.
     mouse: bool,
     /// The theme to set when the loop starts.
-    theme: Option<Theme>,
-    /// The themes to pick from by the terminal's background: dark, light.
-    themes: Option<Box<(Theme, Theme)>>,
+    theme: ThemeChoice,
 }
+
+/// Where the loop's theme comes from.
+#[derive(Clone, Debug, Default)]
+enum ThemeChoice {
+    /// The built-in theme, from the terminal's colors.
+    #[default]
+    Terminal,
+    /// A fixed theme.
+    Fixed(Box<Theme>),
+    /// The variant of a theme file that matches the terminal.
+    File(ThemeFile),
+}
+
+/// How long to wait for the terminal to tell its colors.
+const QUERY_TIMEOUT: Duration = Duration::from_millis(500);
 
 impl Default for Tui {
     fn default() -> Self {
@@ -53,8 +66,7 @@ impl Default for Tui {
             frame_interval: Duration::from_secs(1) / 60,
             tick: None,
             mouse: false,
-            theme: None,
-            themes: None,
+            theme: ThemeChoice::Terminal,
         }
     }
 }
@@ -91,39 +103,50 @@ impl Tui {
         self
     }
 
-    /// Draw with `theme`, whatever the terminal's colors. See
-    /// [`crate::theme`].
+    /// Draw with `theme`, whatever the terminal's colors. By default the loop
+    /// draws with the built-in theme, generated from the terminal's colors;
+    /// see [`crate::theme`].
     pub fn theme(mut self, theme: Theme) -> Self {
-        self.theme = Some(theme);
-        self.themes = None;
+        self.theme = ThemeChoice::Fixed(Box::new(theme));
         self
     }
 
-    /// Draw with `dark` or `light`, whichever matches the terminal's
-    /// background (see [`Appearance::detect`](crate::theme::Appearance::detect)).
-    /// The default picks between [`Theme::dark`] and [`Theme::light`].
-    pub fn themes(mut self, dark: Theme, light: Theme) -> Self {
-        self.themes = Some(Box::new((dark, light)));
-        self.theme = None;
+    /// Draw with the variant of `file` that matches the terminal's
+    /// background: `<dark>` or `<light>`. [`run`](Self::run) fails with
+    /// [`Error::Theme`](crate::Error::Theme) if it does not load.
+    pub fn theme_file(mut self, file: ThemeFile) -> Self {
+        self.theme = ThemeChoice::File(file);
         self
+    }
+
+    /// The theme to start with, given the terminal's colors if known.
+    fn resolve_theme(&self, colors: Option<TerminalColors>) -> Result<Option<Theme>> {
+        Ok(match &self.theme {
+            ThemeChoice::Fixed(theme) => Some((**theme).clone()),
+            ThemeChoice::Terminal => colors.map(|colors| Theme::from_terminal(&colors)),
+            ThemeChoice::File(file) => {
+                let background = colors.unwrap_or_default().background;
+                Some(file.load(Appearance::of(background))?)
+            }
+        })
     }
 
     /// Take over the terminal and run `root` until [`quit`] is called or
     /// input ends. The terminal is restored on return and on panic.
     ///
+    /// First asks the terminal for its colors, for the built-in theme or to
+    /// pick a theme file's variant.
+    ///
     /// # Errors
-    /// Fails if the terminal cannot be set up, input fails, or drawing fails.
+    /// Fails if the terminal cannot be set up, a theme file does not load,
+    /// input fails, or drawing fails.
     pub async fn run<C: Component + ?Sized + 'static>(mut self, root: &C) -> Result<()> {
-        if self.theme.is_none() {
+        if !matches!(self.theme, ThemeChoice::Fixed(_)) {
             // Before raw mode and the input stream: the answer arrives as input.
-            let (dark, light) = *self
-                .themes
-                .take()
-                .unwrap_or_else(|| Box::new((Theme::dark(), Theme::light())));
-            self.theme = Some(match theme::Appearance::detect() {
-                theme::Appearance::Dark => dark,
-                theme::Appearance::Light => light,
-            });
+            let colors = TerminalColors::query(QUERY_TIMEOUT).unwrap_or_default();
+            if let Some(theme) = self.resolve_theme(Some(colors))? {
+                self.theme = ThemeChoice::Fixed(Box::new(theme));
+            }
         }
         let mut guard = TerminalGuard::enter()?;
         if self.mouse {
@@ -158,12 +181,9 @@ impl Tui {
     {
         let quit = QuitScope::enter();
         let _session = Session::start();
-        // Without a real terminal there is nothing to ask: the dark theme.
-        if let Some(theme) = self
-            .theme
-            .clone()
-            .or_else(|| self.themes.as_ref().map(|t| t.0.clone()))
-        {
+        // Without a real terminal there is nothing to ask: theme files load
+        // their dark variant, and the built-in theme stays as it is.
+        if let Some(theme) = self.resolve_theme(None)? {
             theme::set(theme);
         }
         let mut dispatcher = Dispatcher::new(self.mouse);

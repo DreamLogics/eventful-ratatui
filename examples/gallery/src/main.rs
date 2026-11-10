@@ -4,9 +4,12 @@
 //! command palette, Ctrl+T switches the theme, the mouse works everywhere, and
 //! Ctrl+C quits. What you do is logged on the Lists page.
 use eventful_ratatui::prelude::*;
-use eventful_ratatui::theme::Theme;
+use eventful_ratatui::theme::{Theme, ThemeFile};
 use eventful_rs::*;
-use std::{cell::Cell, future::Future};
+use std::{
+    cell::{Cell, RefCell},
+    future::Future,
+};
 
 declare_shard!(Ui, runtime = main);
 
@@ -24,8 +27,9 @@ struct Gallery {
     overlay_buttons: [Button; 6],
     menu_bar: MenuBar,
     editor: TextArea,
-    /// Index into `Theme::presets()`, once switched.
-    theme: Cell<Option<usize>>,
+    /// The themes Ctrl+T cycles through, once loaded, and which one is on.
+    themes: RefCell<Vec<Theme>>,
+    theme: Cell<usize>,
     keys: Keymap<Gallery>,
 }
 
@@ -312,7 +316,8 @@ impl Gallery {
             overlay_buttons,
             menu_bar,
             editor,
-            theme: Cell::new(None),
+            themes: RefCell::default(),
+            theme: Cell::new(0),
             keys: Keymap::new()
                 .bind("ctrl+c", |_| quit())
                 .bind("ctrl+t", Gallery::next_theme)
@@ -402,16 +407,43 @@ impl Gallery {
         self.log.push(format!("menu bar: {id}"));
     }
 
+    /// The built-in theme the loop started with, then every theme file
+    /// shipped with the crate, in the terminal's appearance.
+    fn load_themes(&self) -> Vec<Theme> {
+        let start = (*theme::current()).clone();
+        let appearance = start.appearance();
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../eventful-ratatui/themes");
+        let mut paths: Vec<_> = std::fs::read_dir(dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().is_some_and(|e| e == "crod"))
+            .collect();
+        paths.sort();
+        let mut themes = vec![start];
+        for path in paths {
+            match ThemeFile::open(&path).map(|file| file.load(appearance)) {
+                Ok(Ok(theme)) => themes.push(theme),
+                Ok(Err(err)) => self.log.push(Line::from(err.to_string()).red()),
+                Err(err) => self
+                    .log
+                    .push(Line::from(format!("{}: {err}", path.display())).red()),
+            }
+        }
+        themes
+    }
+
     fn next_theme(&self) {
-        let presets = Theme::presets();
-        // Start from the theme the terminal query picked.
-        let current = self.theme.get().unwrap_or_else(|| {
-            let name = theme::current().name;
-            presets.iter().position(|t| t.name == name).unwrap_or(0)
-        });
-        let next = (current + 1) % presets.len();
-        self.theme.set(Some(next));
-        let theme = presets[next].clone();
+        if self.themes.borrow().is_empty() {
+            let themes = self.load_themes();
+            *self.themes.borrow_mut() = themes;
+        }
+        let themes = self.themes.borrow();
+        let next = (self.theme.get() + 1) % themes.len();
+        self.theme.set(next);
+        let theme = themes[next].clone();
+        drop(themes);
         self.log.push(format!("theme: {}", theme.name));
         Toast::info(format!("Theme: {}", theme.name)).show();
         theme::set(theme);

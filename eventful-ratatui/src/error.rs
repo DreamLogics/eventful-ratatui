@@ -20,6 +20,8 @@ pub enum Error {
     Invoke(InvokeError),
     /// A shard could not be joined or posted to.
     Shard(ShardError),
+    /// A theme file could not be loaded.
+    Theme(crate::theme::ThemeError),
 }
 
 impl fmt::Display for Error {
@@ -29,6 +31,7 @@ impl fmt::Display for Error {
             Self::Backend(err) => write!(f, "drawing failed: {err}"),
             Self::Invoke(err) => write!(f, "shard call failed: {err}"),
             Self::Shard(err) => write!(f, "shard failed: {err}"),
+            Self::Theme(err) => err.fmt(f),
         }
     }
 }
@@ -40,6 +43,7 @@ impl std::error::Error for Error {
             Self::Backend(err) => Some(err.as_ref()),
             Self::Invoke(err) => Some(err),
             Self::Shard(err) => Some(err),
+            Self::Theme(err) => Some(err),
         }
     }
 }
@@ -57,5 +61,10 @@ impl From<InvokeError> for Error {
 impl From<ShardError> for Error {
     fn from(err: ShardError) -> Self {
         Self::Shard(err)
+    }
+}
+impl From<crate::theme::ThemeError> for Error {
+    fn from(err: crate::theme::ThemeError) -> Self {
+        Self::Theme(err)
     }
 }

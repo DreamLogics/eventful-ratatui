@@ -12,7 +12,7 @@ resolver = "3"
 authors = ["Sanne Ladage", "eventful-ratatui contributors"]
 version = "0.0.1"
 edition = "2024"
-rust-version = "1.98"
+rust-version = "1.99"
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/DreamLogics/eventful-ratatui"
 repository = "https://github.com/DreamLogics/eventful-ratatui"
@@ -31,4 +31,6 @@ futures-timer = "3"
 tokio = "1.53"
 unicode-segmentation = "1.12"
 unicode-width = "0.2"
-terminal-colorsaurus = "1.0.3"
+crol = "0.3"
+rustix = { version = "1.1", features = ["termios"] }
+serde = { version = "1", features = ["derive"] }

@@ -1,0 +1,56 @@
+// Gruvbox
+// Gruvbox: warm retro tones; bright accents when dark, faded ones when light.
+// https://github.com/morhetz/gruvbox
+//
+// Load with `ThemeFile::open`; the loop picks `<dark>` or `<light>` to match
+// the terminal background.
+
+name: "Gruvbox"
+
+<dark> {
+    name: "Gruvbox Dark",
+    palette: {
+        background: "#282828",  // bg0
+        surface: "#32302f",  // bg0_s
+        field: "#3c3836",  // bg1
+        foreground: "#ebdbb2",  // fg1
+        muted: "#bdae93",  // fg3
+        primary: "#fabd2f",  // bright yellow
+        primary_foreground: "#282828",
+        secondary: "#504945",  // bg2
+        secondary_foreground: "#ebdbb2",
+        accent: "#fe8019",  // bright orange
+        destructive: "#fb4934",  // bright red
+        destructive_foreground: "#1d2021",  // bg0_h
+        success: "#b8bb26",  // bright green
+        warning: "#fabd2f",  // bright yellow
+        info: "#83a598",  // bright blue
+        border: "#7c6f64",  // bg4
+        ring: "#dba72e",
+        selection: "#665c54",  // bg3
+    },
+}
+
+<light> {
+    name: "Gruvbox Light",
+    palette: {
+        background: "#fbf1c7",  // bg0
+        surface: "#f2e5bc",  // bg0_s
+        field: "#ebdbb2",  // bg1
+        foreground: "#3c3836",  // fg1
+        muted: "#665c54",  // fg3
+        primary: "#076678",  // faded blue
+        primary_foreground: "#fbf1c7",
+        secondary: "#d5c4a1",  // bg2
+        secondary_foreground: "#3c3836",
+        accent: "#af3a03",  // faded orange
+        destructive: "#9d0006",  // faded red
+        destructive_foreground: "#fbf1c7",
+        success: "#79740e",  // faded green
+        warning: "#b57614",  // faded yellow
+        info: "#427b58",  // faded aqua
+        border: "#928374",  // gray
+        ring: "#2c7b84",
+        selection: "#d5c4a1",  // bg2
+    },
+}

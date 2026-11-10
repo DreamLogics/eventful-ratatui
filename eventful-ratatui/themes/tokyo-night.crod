@@ -1,0 +1,56 @@
+// Tokyo Night
+// Tokyo Night: Night for dark terminals, Day for light ones.
+// https://github.com/folke/tokyonight.nvim
+//
+// Load with `ThemeFile::open`; the loop picks `<dark>` or `<light>` to match
+// the terminal background.
+
+name: "Tokyo Night"
+
+<dark> {
+    name: "Tokyo Night",
+    palette: {
+        background: "#1a1b26",  // bg
+        surface: "#222534",  // between bg and bg_highlight
+        field: "#292e42",  // bg_highlight
+        foreground: "#c0caf5",  // fg
+        muted: "#a9b1d6",  // fg_dark
+        primary: "#7aa2f7",  // blue
+        primary_foreground: "#1a1b26",
+        secondary: "#283457",  // bg_visual
+        secondary_foreground: "#c0caf5",
+        accent: "#bb9af7",  // magenta
+        destructive: "#f7768e",  // red
+        destructive_foreground: "#1a1b26",
+        success: "#9ece6a",  // green
+        warning: "#e0af68",  // yellow
+        info: "#7dcfff",  // cyan
+        border: "#737aa2",  // dark5
+        ring: "#6c8ed8",
+        selection: "#33467c",
+    },
+}
+
+<light> {
+    name: "Tokyo Night Day",
+    palette: {
+        background: "#e1e2e7",  // bg
+        surface: "#d8dae3",  // between bg and bg_dark
+        field: "#d0d5e3",  // bg_dark
+        foreground: "#2a4fa3",  // fg, darkened to read on the wells
+        muted: "#4f5f99",  // fg_dark, darkened
+        primary: "#1f62c4",  // blue, darkened
+        primary_foreground: "#ffffff",
+        secondary: "#c4c8da",  // bg_highlight
+        secondary_foreground: "#2a4fa3",
+        accent: "#8a3fe8",  // magenta, darkened
+        destructive: "#d20f4c",  // red, darkened
+        destructive_foreground: "#ffffff",
+        success: "#587539",  // green
+        warning: "#8c6c3e",  // yellow
+        info: "#007197",  // cyan
+        border: "#8990b3",
+        ring: "#3c75c9",
+        selection: "#b7c1e3",
+    },
+}

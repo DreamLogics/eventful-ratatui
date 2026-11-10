@@ -1,0 +1,55 @@
+// Neutral
+// Neutral grays with a white or black primary, after shadcn/ui.
+//
+// Load with `ThemeFile::open`; the loop picks `<dark>` or `<light>` to match
+// the terminal background.
+
+name: "Neutral"
+
+<dark> {
+    name: "Neutral Dark",
+    palette: {
+        background: "#0a0a0a",
+        surface: "#161616",
+        field: "#212121",
+        foreground: "#fafafa",
+        muted: "#a1a1a1",
+        primary: "#e5e5e5",
+        primary_foreground: "#171717",
+        secondary: "#2a2a2a",
+        secondary_foreground: "#fafafa",
+        accent: "#8b5cf6",
+        destructive: "#ff6467",
+        destructive_foreground: "#171717",
+        success: "#4ade80",
+        warning: "#facc15",
+        info: "#60a5fa",
+        border: "#5e5e5e",
+        ring: "#c4c4c4",
+        selection: "#264f78",
+    },
+}
+
+<light> {
+    name: "Neutral Light",
+    palette: {
+        background: "#ffffff",
+        surface: "#f7f7f7",
+        field: "#efefef",
+        foreground: "#0a0a0a",
+        muted: "#666666",
+        primary: "#171717",
+        primary_foreground: "#fafafa",
+        secondary: "#e6e6e6",
+        secondary_foreground: "#171717",
+        accent: "#7c3aed",
+        destructive: "#dc2626",
+        destructive_foreground: "#fafafa",
+        success: "#15803d",
+        warning: "#a16207",
+        info: "#1d4ed8",
+        border: "#8f8f8f",
+        ring: "#3a3a3a",
+        selection: "#bfd7f5",
+    },
+}

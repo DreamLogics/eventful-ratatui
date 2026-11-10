@@ -12,19 +12,47 @@
 //! the background that controls sit in. A well lifts a step further on
 //! focus, again on hover, and the cursor row of a list lifts the furthest.
 //!
-//! Every built-in theme comes as a dark and a light variant. By default the
-//! loop asks the terminal for its background color and picks [`Theme::dark`]
-//! or [`Theme::light`] to match; [`Tui::theme`](crate::Tui::theme) or
-//! [`Tui::themes`](crate::Tui::themes) choose others. Components read
-//! [`current`] while rendering, and [`set`] switches at run time.
+//! # The built-in theme
 //!
-//! ```
-//! use eventful_ratatui::{prelude::*, theme::Theme};
+//! There is one built-in theme, generated from the terminal's own colors: at
+//! startup the loop asks the terminal for its 16 ANSI colors, foreground and
+//! background ([`TerminalColors::query`]) and derives every palette color
+//! from them ([`Theme::from_terminal`]). The app follows the user's color
+//! scheme, light or dark, while getting real shades for surfaces and wells.
 //!
-//! let mut theme = Theme::catppuccin_mocha();
-//! theme.palette.primary = Color::Rgb(0xf5, 0xc2, 0xe7);
-//! let tui = Tui::new().theme(theme);
+//! # Theme files
+//!
+//! Other themes are [CROL](https://crates.io/crates/crol) data files
+//! (`.crod`) with a `<dark>` and a `<light>` variant; the loop loads the one
+//! that matches the terminal's background. This crate ships a few in its
+//! `themes/` directory: Neutral, Catppuccin, Gruvbox, Nord and Tokyo Night.
+//!
+//! ```text
+//! name: "Mine"
+//! <dark> {
+//!     palette: { background: "#101014", foreground: "#e8e8ee", /* … */ },
+//! }
+//! <light> {
+//!     palette: { background: "#fafafa", foreground: "#1a1a1e", /* … */ },
+//! }
 //! ```
+//!
+//! Every [`Palette`] field must be given, as `"#rrggbb"` or a color name.
+//! Binds (`blue := "#89b4fa"`) and references (`&self.palette.primary`)
+//! work as everywhere in CROL.
+//!
+//! ```no_run
+//! use eventful_ratatui::{prelude::*, theme::ThemeFile};
+//!
+//! # fn main() -> std::io::Result<()> {
+//! let tui = Tui::new().theme_file(ThemeFile::open("themes/catppuccin.crod")?);
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! [`Tui::theme`](crate::Tui::theme) sets a fixed [`Theme`] instead.
+//! Components read [`current`] while rendering, and [`set`] switches at run
+//! time.
 use crate::{focus, mouse};
 use ratatui::{
     style::{Color, Modifier, Style},
@@ -33,29 +61,34 @@ use ratatui::{
 use std::{cell::RefCell, rc::Rc};
 
 pub mod color;
+mod file;
+mod terminal;
+
+pub use file::{ThemeError, ThemeFile};
+pub use terminal::TerminalColors;
 
 use color::{away_from, blend, lift};
 
 /// How far a filled control, like a button, shifts when focused, in percent.
-pub const FOCUS_SHIFT: u8 = 16;
+pub(crate) const FOCUS_SHIFT: u8 = 16;
 /// How far a filled control shifts when hovered; more than focus, so
 /// pointing at a focused control still shows.
-pub const HOVER_SHIFT: u8 = 24;
+pub(crate) const HOVER_SHIFT: u8 = 24;
 /// How far a well lifts from `field` when focused.
-pub const WELL_FOCUS_SHIFT: u8 = 5;
+pub(crate) const WELL_FOCUS_SHIFT: u8 = 5;
 /// How far a well lifts from `field` when hovered.
-pub const WELL_HOVER_SHIFT: u8 = 9;
+pub(crate) const WELL_HOVER_SHIFT: u8 = 9;
 /// How far the cursor row of a list lifts past the well it sits in.
-pub const ROW_SHIFT: u8 = 14;
+pub(crate) const ROW_SHIFT: u8 = 14;
 /// How far a disabled control blends toward the background.
-pub const DISABLED_DIM: u8 = 50;
+pub(crate) const DISABLED_DIM: u8 = 50;
 /// How far everything below a modal blends toward the background.
-pub const BACKDROP_DIM: u8 = 60;
+pub(crate) const BACKDROP_DIM: u8 = 60;
 
 /// The base colors of a theme. Every state color is derived from these.
 ///
-/// New fields may be added in minor releases; start from a preset and assign
-/// the fields you want to change.
+/// New fields may be added in minor releases; start from an existing theme's
+/// palette and assign the fields you want to change.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Palette {
@@ -107,23 +140,28 @@ pub enum Appearance {
 }
 
 impl Appearance {
-    /// Ask the terminal for its background color and tell which appearance
-    /// matches it. Falls back to [`Dark`](Self::Dark) when the terminal does
-    /// not answer, or when output is not a terminal.
-    ///
-    /// Call it before the terminal is in raw mode and reading input, as
-    /// [`Tui::run`](crate::Tui::run) does.
-    pub fn detect() -> Self {
-        use terminal_colorsaurus::{QueryOptions, ThemeMode, theme_mode};
-        match theme_mode(QueryOptions::default()) {
-            Ok(ThemeMode::Light) => Self::Light,
-            _ => Self::Dark,
+    /// The appearance whose background `background` is.
+    pub fn of(background: Color) -> Self {
+        if color::is_light(background) {
+            Self::Light
+        } else {
+            Self::Dark
+        }
+    }
+
+    /// The name of this appearance's variant in theme files: `dark` or
+    /// `light`.
+    pub fn variant(self) -> &'static str {
+        match self {
+            Self::Dark => "dark",
+            Self::Light => "light",
         }
     }
 }
 
 /// The interaction state a control is drawn in.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Interaction {
     /// It has the keyboard focus.
     pub focused: bool,
@@ -204,7 +242,7 @@ pub enum Tone {
 #[non_exhaustive]
 pub struct Theme {
     /// A display name, for a theme picker.
-    pub name: &'static str,
+    pub name: String,
     /// The base colors.
     pub palette: Palette,
     /// The border shape of containers and overlays.
@@ -291,17 +329,18 @@ impl Symbols {
 }
 
 impl Default for Theme {
-    /// [`Theme::dark`].
+    /// The built-in theme over [`TerminalColors::default`], a common dark
+    /// palette; what draws when the terminal is not asked, as in tests.
     fn default() -> Self {
-        Self::dark()
+        Self::from_terminal(&TerminalColors::default())
     }
 }
 
 impl Theme {
     /// A theme named `name` over `palette`, with the default symbols.
-    pub fn new(name: &'static str, palette: Palette) -> Self {
+    pub fn new(name: impl Into<String>, palette: Palette) -> Self {
         Self {
-            name,
+            name: name.into(),
             palette,
             border_type: BorderType::Rounded,
             symbols: Symbols::default(),
@@ -310,269 +349,7 @@ impl Theme {
 
     /// Whether this theme is dark or light, read off its background.
     pub fn appearance(&self) -> Appearance {
-        if color::is_light(self.palette.background) {
-            Appearance::Light
-        } else {
-            Appearance::Dark
-        }
-    }
-
-    /// Every built-in theme, for a theme picker.
-    pub fn presets() -> Vec<Theme> {
-        vec![
-            Self::dark(),
-            Self::light(),
-            Self::catppuccin_mocha(),
-            Self::catppuccin_latte(),
-            Self::gruvbox_dark(),
-            Self::gruvbox_light(),
-            Self::nord(),
-            Self::tokyo_night(),
-        ]
-    }
-
-    /// Neutral grays with a white primary, after shadcn/ui.
-    pub fn dark() -> Self {
-        let background = rgb(0x0a0a0a);
-        let primary = rgb(0xe5e5e5);
-        Self::new(
-            "Dark",
-            Palette {
-                background,
-                surface: rgb(0x161616),
-                field: rgb(0x212121),
-                foreground: rgb(0xfafafa),
-                muted: rgb(0xa1a1a1),
-                primary,
-                primary_foreground: rgb(0x171717),
-                secondary: rgb(0x2a2a2a),
-                secondary_foreground: rgb(0xfafafa),
-                accent: rgb(0x8b5cf6),
-                destructive: rgb(0xff6467),
-                destructive_foreground: rgb(0x171717),
-                success: rgb(0x4ade80),
-                warning: rgb(0xfacc15),
-                info: rgb(0x60a5fa),
-                border: rgb(0x5e5e5e),
-                ring: blend(primary, background, 15),
-                selection: rgb(0x264f78),
-            },
-        )
-    }
-
-    /// Neutral grays with a black primary, after shadcn/ui.
-    pub fn light() -> Self {
-        let background = rgb(0xffffff);
-        let primary = rgb(0x171717);
-        Self::new(
-            "Light",
-            Palette {
-                background,
-                surface: rgb(0xf7f7f7),
-                field: rgb(0xefefef),
-                foreground: rgb(0x0a0a0a),
-                muted: rgb(0x666666),
-                primary,
-                primary_foreground: rgb(0xfafafa),
-                secondary: rgb(0xe6e6e6),
-                secondary_foreground: rgb(0x171717),
-                accent: rgb(0x7c3aed),
-                destructive: rgb(0xdc2626),
-                destructive_foreground: rgb(0xfafafa),
-                success: rgb(0x15803d),
-                warning: rgb(0xa16207),
-                info: rgb(0x1d4ed8),
-                border: rgb(0x8f8f8f),
-                ring: blend(primary, background, 15),
-                selection: rgb(0xbfd7f5),
-            },
-        )
-    }
-
-    /// Catppuccin Mocha: soft pastels on deep indigo.
-    pub fn catppuccin_mocha() -> Self {
-        let background = rgb(0x11111b); // crust
-        let primary = rgb(0x89b4fa); // blue
-        let field = rgb(0x1e1e2e); // base
-        Self::new(
-            "Catppuccin Mocha",
-            Palette {
-                background,
-                surface: blend(background, field, 40),
-                field,
-                foreground: rgb(0xcdd6f4),           // text
-                muted: rgb(0xa6adc8),                // subtext0
-                primary,                             //
-                primary_foreground: background,      //
-                secondary: rgb(0x313244),            // surface0
-                secondary_foreground: rgb(0xcdd6f4), // text
-                accent: rgb(0xcba6f7),               // mauve
-                destructive: rgb(0xf38ba8),          // red
-                destructive_foreground: background,  //
-                success: rgb(0xa6e3a1),              // green
-                warning: rgb(0xf9e2af),              // yellow
-                info: rgb(0x74c7ec),                 // sapphire
-                border: rgb(0x6c7086),               // overlay0
-                ring: blend(primary, background, 15),
-                selection: rgb(0x45475a), // surface1
-            },
-        )
-    }
-
-    /// Catppuccin Latte: the light flavor.
-    pub fn catppuccin_latte() -> Self {
-        let background = rgb(0xeff1f5); // base
-        let primary = rgb(0x1e66f5); // blue
-        Self::new(
-            "Catppuccin Latte",
-            Palette {
-                background,
-                surface: rgb(0xe6e9ef),    // mantle
-                field: rgb(0xdce0e8),      // crust
-                foreground: rgb(0x4c4f69), // text
-                muted: rgb(0x5c5f77),      // subtext1: subtext0 is under 4.5:1 on base
-                primary,
-                // White: base is under 4.5:1 on Latte blue.
-                primary_foreground: rgb(0xffffff),
-                secondary: rgb(0xccd0da), // surface0
-                secondary_foreground: rgb(0x4c4f69),
-                accent: rgb(0x8839ef),      // mauve
-                destructive: rgb(0xd20f39), // red
-                destructive_foreground: rgb(0xffffff),
-                success: rgb(0x40a02b), // green
-                warning: rgb(0xfe640b), // peach: yellow is too faint on base
-                info: rgb(0x209fb5),    // sapphire
-                border: rgb(0x8c8fa1),  // overlay1
-                ring: blend(primary, background, 15),
-                selection: rgb(0xbcc0cc), // surface1
-            },
-        )
-    }
-
-    /// Gruvbox dark: warm retro tones.
-    pub fn gruvbox_dark() -> Self {
-        let background = rgb(0x282828); // bg0
-        let primary = rgb(0xfabd2f); // bright yellow
-        Self::new(
-            "Gruvbox Dark",
-            Palette {
-                background,
-                surface: rgb(0x32302f),    // bg0_s
-                field: rgb(0x3c3836),      // bg1
-                foreground: rgb(0xebdbb2), // fg1
-                muted: rgb(0xbdae93),      // fg3
-                primary,
-                primary_foreground: background,
-                secondary: rgb(0x504945), // bg2
-                secondary_foreground: rgb(0xebdbb2),
-                accent: rgb(0xfe8019),                 // bright orange
-                destructive: rgb(0xfb4934),            // bright red
-                destructive_foreground: rgb(0x1d2021), // bg0_h
-                success: rgb(0xb8bb26),                // bright green
-                warning: rgb(0xfabd2f),                // bright yellow
-                info: rgb(0x83a598),                   // bright blue
-                border: rgb(0x7c6f64),                 // bg4
-                ring: blend(primary, background, 15),
-                selection: rgb(0x665c54), // bg3
-            },
-        )
-    }
-
-    /// Gruvbox light: the faded accents on cream.
-    pub fn gruvbox_light() -> Self {
-        let background = rgb(0xfbf1c7); // bg0
-        let primary = rgb(0x076678); // faded blue
-        Self::new(
-            "Gruvbox Light",
-            Palette {
-                background,
-                surface: rgb(0xf2e5bc),    // bg0_s
-                field: rgb(0xebdbb2),      // bg1
-                foreground: rgb(0x3c3836), // fg1
-                muted: rgb(0x665c54),      // fg3
-                primary,
-                primary_foreground: background,
-                secondary: rgb(0xd5c4a1), // bg2
-                secondary_foreground: rgb(0x3c3836),
-                accent: rgb(0xaf3a03),      // faded orange
-                destructive: rgb(0x9d0006), // faded red
-                destructive_foreground: background,
-                success: rgb(0x79740e), // faded green
-                warning: rgb(0xb57614), // faded yellow
-                info: rgb(0x427b58),    // faded aqua
-                border: rgb(0x928374),  // gray
-                ring: blend(primary, background, 15),
-                selection: rgb(0xd5c4a1), // bg2
-            },
-        )
-    }
-
-    /// Nord: cool, desaturated blues.
-    pub fn nord() -> Self {
-        let background = rgb(0x2e3440); // nord0
-        let primary = rgb(0x88c0d0); // nord8
-        let field = rgb(0x3b4252); // nord1
-        Self::new(
-            "Nord",
-            Palette {
-                background,
-                surface: blend(background, field, 50),
-                field,
-                foreground: rgb(0xeceff4), // nord6
-                muted: rgb(0xd8dee9),      // nord4
-                primary,
-                primary_foreground: background,
-                secondary: rgb(0x4c566a), // nord3
-                secondary_foreground: rgb(0xeceff4),
-                accent: rgb(0xb48ead),      // nord15
-                destructive: rgb(0xbf616a), // nord11
-                destructive_foreground: rgb(0xeceff4),
-                success: rgb(0xa3be8c), // nord14
-                warning: rgb(0xebcb8b), // nord13
-                info: rgb(0x81a1c1),    // nord9
-                border: rgb(0x707e9b),
-                ring: blend(primary, background, 15),
-                selection: rgb(0x434c5e), // nord2
-            },
-        )
-    }
-
-    /// Tokyo Night: saturated blues and purples on near-black.
-    pub fn tokyo_night() -> Self {
-        let background = rgb(0x1a1b26); // bg
-        let primary = rgb(0x7aa2f7); // blue
-        let field = rgb(0x292e42); // bg_highlight
-        Self::new(
-            "Tokyo Night",
-            Palette {
-                background,
-                surface: blend(background, field, 50),
-                field,
-                foreground: rgb(0xc0caf5), // fg
-                muted: rgb(0xa9b1d6),      // fg_dark
-                primary,
-                primary_foreground: background,
-                secondary: rgb(0x283457), // bg_visual
-                secondary_foreground: rgb(0xc0caf5),
-                accent: rgb(0xbb9af7),      // magenta
-                destructive: rgb(0xf7768e), // red
-                destructive_foreground: background,
-                success: rgb(0x9ece6a), // green
-                warning: rgb(0xe0af68), // yellow
-                info: rgb(0x7dcfff),    // cyan
-                border: rgb(0x737aa2),  // dark5
-                ring: blend(primary, background, 15),
-                selection: rgb(0x33467c),
-            },
-        )
-    }
-
-    /// The light or dark default for `appearance`.
-    pub fn for_appearance(appearance: Appearance) -> Self {
-        match appearance {
-            Appearance::Dark => Self::dark(),
-            Appearance::Light => Self::light(),
-        }
+        Appearance::of(self.palette.background)
     }
 
     // ---- Text ------------------------------------------------------------
@@ -666,16 +443,29 @@ impl Theme {
     /// further on hover.
     pub fn well_color(&self, state: Interaction) -> Color {
         let p = &self.palette;
-        let away = away_from(p.background);
         if state.disabled {
             blend(p.field, p.background, DISABLED_DIM)
         } else if state.hovered {
-            blend(p.field, away, WELL_HOVER_SHIFT)
+            self.lift_well(p.field, WELL_HOVER_SHIFT)
         } else if state.focused {
-            blend(p.field, away, WELL_FOCUS_SHIFT)
+            self.lift_well(p.field, WELL_FOCUS_SHIFT)
         } else {
             p.field
         }
+    }
+
+    /// `base` lifted `amount` away from the background, less where the text
+    /// would lose too much contrast: no more than 5% of what it has on
+    /// `base`, and not below 4.5:1 from above it.
+    fn lift_well(&self, base: Color, mut amount: u8) -> Color {
+        let away = away_from(self.palette.background);
+        let fg = self.palette.foreground;
+        let contrast = |c| color::contrast(fg, c).unwrap_or(21.0);
+        let floor = contrast(base).min(4.5 / 0.95) * 0.95;
+        while amount > 1 && contrast(blend(base, away, amount)) < floor {
+            amount -= 1;
+        }
+        blend(base, away, amount)
     }
 
     /// A well in `state`: inputs, lists, tracks.
@@ -692,20 +482,14 @@ impl Theme {
     /// past the well; it lifts less while the list has neither focus nor the
     /// pointer, so the selection stays visible.
     pub fn row(&self, well: Interaction) -> Style {
-        let base = self.well_color(well);
-        let away = away_from(self.palette.background);
-        let mut amount = if well.is_active() {
+        let amount = if well.is_active() {
             ROW_SHIFT
         } else {
             ROW_SHIFT / 2
         };
-        // Lift less where the palette's text would lose too much contrast.
-        let fg = self.palette.foreground;
-        while amount > 2 && color::contrast(fg, blend(base, away, amount)).is_some_and(|c| c < 4.5)
-        {
-            amount -= 1;
-        }
-        Style::new().fg(fg).bg(blend(base, away, amount))
+        Style::new()
+            .fg(self.palette.foreground)
+            .bg(self.lift_well(self.well_color(well), amount))
     }
 
     /// A row under the pointer in a list in state `well`.
@@ -772,7 +556,7 @@ impl Theme {
 
 /// `fill` shifted `percent` to show a state, keeping `label` on it readable:
 /// away from the fill's own lightness where the label stays readable,
-/// otherwise away from the label.
+/// otherwise away from the label's.
 fn shifted(fill: Color, label: Color, percent: u8) -> Color {
     use color::contrast;
     if percent == 0 {
@@ -783,12 +567,15 @@ fn shifted(fill: Color, label: Color, percent: u8) -> Color {
     if contrast(label, lifted).is_none_or(|c| c >= floor) {
         return lifted;
     }
-    blend(fill, away_from(label), percent)
-}
-
-/// An RGB color from `0xRRGGBB`.
-const fn rgb(hex: u32) -> Color {
-    Color::Rgb((hex >> 16) as u8, (hex >> 8) as u8, hex as u8)
+    // Away from the label: darker under a lighter label, lighter under a
+    // darker one.
+    let lighter = color::luminance(label) > color::luminance(fill);
+    let away = if lighter {
+        Color::Rgb(0, 0, 0)
+    } else {
+        Color::Rgb(255, 255, 255)
+    };
+    blend(fill, away, percent)
 }
 
 thread_local! {
@@ -810,79 +597,179 @@ pub fn set(theme: Theme) {
 mod tests {
     use super::{color::contrast, *};
 
-    /// Every preset keeps text readable on every rung it is drawn on.
-    #[test]
-    fn presets_keep_text_readable() {
-        for theme in Theme::presets() {
-            let p = theme.palette;
-            let name = theme.name;
-            let at_least = |what: &str, fg: Color, bg: Color, floor: f64| {
-                let ratio = contrast(fg, bg).expect("rgb");
-                assert!(
-                    ratio >= floor,
-                    "{name}: {what} contrast {ratio:.2} below {floor}"
-                );
-            };
-            let hot = Interaction {
-                focused: true,
-                hovered: true,
-                disabled: false,
-            };
-            at_least("text", p.foreground, p.background, 7.0);
-            at_least("text on field", p.foreground, p.field, 4.5);
-            // Large wells lift on focus only; the cursor row lifts past that.
-            let focused = Interaction::default().focused(true);
-            at_least(
-                "text on cursor row",
-                p.foreground,
-                theme.row(focused).bg.unwrap(),
-                4.5,
+    /// The theme files this crate ships, by name.
+    pub(crate) const FILES: [(&str, &str); 5] = [
+        ("neutral", include_str!("../themes/neutral.crod")),
+        ("catppuccin", include_str!("../themes/catppuccin.crod")),
+        ("gruvbox", include_str!("../themes/gruvbox.crod")),
+        ("nord", include_str!("../themes/nord.crod")),
+        ("tokyo-night", include_str!("../themes/tokyo-night.crod")),
+    ];
+
+    /// Every variant of every shipped file.
+    fn file_themes() -> Vec<(Appearance, Theme)> {
+        FILES
+            .iter()
+            .flat_map(|(name, source)| {
+                let file = ThemeFile::from_source(*name, *source);
+                [Appearance::Dark, Appearance::Light].map(|appearance| {
+                    let theme = file
+                        .load(appearance)
+                        .unwrap_or_else(|err| panic!("{name} {appearance:?}: {err}"));
+                    (appearance, theme)
+                })
+            })
+            .collect()
+    }
+
+    /// Terminal palettes to generate the built-in theme from: the default,
+    /// xterm's, a light one, and Solarized, which is low on contrast.
+    pub(crate) fn sample_terminals() -> Vec<(&'static str, TerminalColors)> {
+        let hex = |h: u32| Color::Rgb((h >> 16) as u8, (h >> 8) as u8, h as u8);
+        let ansi = |colors: [u32; 16]| colors.map(hex);
+        vec![
+            ("default", TerminalColors::default()),
+            (
+                "xterm",
+                TerminalColors::new(
+                    hex(0xffffff),
+                    hex(0x000000),
+                    ansi([
+                        0x000000, 0xcd0000, 0x00cd00, 0xcdcd00, 0x0000ee, 0xcd00cd, 0x00cdcd,
+                        0xe5e5e5, 0x7f7f7f, 0xff0000, 0x00ff00, 0xffff00, 0x5c5cff, 0xff00ff,
+                        0x00ffff, 0xffffff,
+                    ]),
+                ),
+            ),
+            (
+                "light",
+                TerminalColors::new(
+                    hex(0x2e3436),
+                    hex(0xffffff),
+                    ansi([
+                        0x2e3436, 0xcc0000, 0x4e9a06, 0xc4a000, 0x3465a4, 0x75507b, 0x06989a,
+                        0xd3d7cf, 0x555753, 0xef2929, 0x8ae234, 0xfce94f, 0x729fcf, 0xad7fa8,
+                        0x34e2e2, 0xeeeeec,
+                    ]),
+                ),
+            ),
+            (
+                "solarized",
+                TerminalColors::new(
+                    hex(0x839496),
+                    hex(0x002b36),
+                    ansi([
+                        0x073642, 0xdc322f, 0x859900, 0xb58900, 0x268bd2, 0xd33682, 0x2aa198,
+                        0xeee8d5, 0x002b36, 0xcb4b16, 0x586e75, 0x657b83, 0x839496, 0x6c71c4,
+                        0x93a1a1, 0xfdf6e3,
+                    ]),
+                ),
+            ),
+        ]
+    }
+
+    /// `theme` keeps text readable on every rung it is drawn on. `text` is the
+    /// floor for body text and `well` for text in wells, which a terminal
+    /// palette may not reach.
+    fn check_readable(theme: &Theme, text: f64, well: f64) {
+        let p = theme.palette;
+        let name = &theme.name;
+        let at_least = |what: &str, fg: Color, bg: Color, floor: f64| {
+            let ratio = contrast(fg, bg).expect("rgb");
+            assert!(
+                ratio >= floor,
+                "{name}: {what} contrast {ratio:.2} below {floor}"
             );
-            at_least("muted", p.muted, p.background, 4.5);
-            at_least("muted on field", p.muted, p.field, 3.0);
-            at_least("primary label", p.primary_foreground, p.primary, 4.5);
-            for state in [Interaction::default(), hot] {
-                for fill in [
-                    Fill::Primary,
-                    Fill::Secondary,
-                    Fill::Destructive,
-                    Fill::Ghost,
-                ] {
-                    let style = theme.fill(fill, state);
-                    let bg = style.bg.unwrap_or(p.background);
-                    at_least("button label", style.fg.unwrap(), bg, 3.0);
-                }
-            }
-            at_least("border", p.border, p.background, 2.0);
-            at_least("ring", p.ring, p.background, 3.0);
-            for tone in [
-                Tone::Success,
-                Tone::Warning,
-                Tone::Error,
-                Tone::Info,
-                Tone::Primary,
+        };
+        let hot = Interaction {
+            focused: true,
+            hovered: true,
+            disabled: false,
+        };
+        at_least("text", p.foreground, p.background, text);
+        at_least("text on field", p.foreground, p.field, well);
+        // Large wells lift on focus only; the cursor row lifts past that.
+        let focused = Interaction::default().focused(true);
+        at_least(
+            "text on cursor row",
+            p.foreground,
+            theme.row(focused).bg.unwrap(),
+            // Two lifts: the focused well, then the row.
+            (well.min(4.5 / 0.95) * 0.95).min(4.5 / 0.95) * 0.95,
+        );
+        at_least("muted", p.muted, p.background, 4.5);
+        at_least("muted on field", p.muted, p.field, 3.0);
+        at_least("primary label", p.primary_foreground, p.primary, 4.5);
+        at_least(
+            "destructive label",
+            p.destructive_foreground,
+            p.destructive,
+            3.0,
+        );
+        for state in [Interaction::default(), hot] {
+            for fill in [
+                Fill::Primary,
+                Fill::Secondary,
+                Fill::Destructive,
+                Fill::Ghost,
             ] {
-                at_least("tone", theme.tone(tone), p.background, 2.5);
+                let style = theme.fill(fill, state);
+                let bg = style.bg.unwrap_or(p.background);
+                at_least(
+                    &format!("{fill:?} label {state:?}"),
+                    style.fg.unwrap(),
+                    bg,
+                    3.0,
+                );
             }
+        }
+        at_least("border", p.border, p.background, 2.0);
+        at_least("ring", p.ring, p.background, 3.0);
+        for tone in [
+            Tone::Success,
+            Tone::Warning,
+            Tone::Error,
+            Tone::Info,
+            Tone::Primary,
+        ] {
+            at_least("tone", theme.tone(tone), p.background, 2.5);
         }
     }
 
     #[test]
-    fn appearance_matches_the_background() {
-        for theme in Theme::presets() {
-            let light = theme.name.contains("Light") || theme.name.contains("Latte");
+    fn theme_files_keep_text_readable() {
+        for (_, theme) in file_themes() {
+            check_readable(&theme, 4.5, 4.5);
+        }
+    }
+
+    #[test]
+    fn theme_file_variants_match_their_appearance() {
+        for (appearance, theme) in file_themes() {
+            assert_eq!(theme.appearance(), appearance, "{}", theme.name);
+        }
+    }
+
+    #[test]
+    fn the_terminal_theme_keeps_text_readable() {
+        for (name, colors) in sample_terminals() {
+            let theme = Theme::from_terminal(&colors);
+            // The terminal's own text color is kept as it is.
+            let text = contrast(colors.foreground, colors.background).unwrap();
+            let well = terminal::well_text_floor(text);
+            check_readable(&theme, text.min(4.5), well);
             assert_eq!(
-                theme.appearance() == Appearance::Light,
-                light,
-                "{}",
-                theme.name
+                theme.appearance(),
+                Appearance::of(colors.background),
+                "{name}"
             );
         }
     }
 
     #[test]
     fn wells_lift_away_from_the_background() {
-        for theme in [Theme::dark(), Theme::light()] {
+        for (_, colors) in sample_terminals() {
+            let theme = Theme::from_terminal(&colors);
             let p = theme.palette;
             let rest = theme.well_color(Interaction::default());
             let hover = theme.well_color(Interaction::default().hovered(true));
