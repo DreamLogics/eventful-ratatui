@@ -3,6 +3,9 @@
 //! Every helper works on RGB channels: [`Color::Rgb`] as is, and the 16 named
 //! colors through a fixed VGA approximation. `Indexed` and `Reset` carry no
 //! channels and pass through unchanged.
+//!
+//! The channel table and the blend rounding follow ratcn's `color` module
+//! (MIT, Copyright (c) 2026 Kristofer Lund); see `THIRD-PARTY-NOTICES.md`.
 use ratatui::style::Color;
 
 /// The RGB channels of `color`, if it has any.

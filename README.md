@@ -139,6 +139,15 @@ version, or types like `ShardRc` from the two copies won't match.
 `eventful_ratatui::eventful_rs` re-exports the copy this crate is built
 against, as do `eventful_ratatui::ratatui` and `eventful_ratatui::crossterm`.
 
+## Acknowledgements
+
+The look of the components follows [ratcn](https://github.com/kristoferlund/ratcn)
+by Kristofer Lund: fills instead of borders, input wells that lift on focus and
+hover, and a palette of purpose-named colors. Several themes take their colors
+and tuning from ratcn's. The color schemes are by their authors: shadcn/ui,
+Catppuccin, Gruvbox, Nord and Tokyo Night. See
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for their licenses.
+
 ## License
 
 Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or

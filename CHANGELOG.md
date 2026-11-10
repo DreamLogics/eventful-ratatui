@@ -6,6 +6,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `THIRD-PARTY-NOTICES.md`, crediting [ratcn](https://github.com/kristoferlund/ratcn),
+  whose visual design the components follow and whose theme colors and tuning
+  several themes use, and the color schemes the themes are built on. The
+  crate packages now also contain the license texts.
+
 ## [0.1.0] - 2026-11-10
 
 The first release.

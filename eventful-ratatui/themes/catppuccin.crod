@@ -2,6 +2,9 @@
 // Catppuccin
 // Catppuccin: Mocha for dark terminals, Latte for light ones.
 // https://catppuccin.com/palette
+// The dark variant's color mapping and tuning follow ratcn (MIT, Copyright
+// (c) 2026 Kristofer Lund, https://github.com/kristoferlund/ratcn); see
+// THIRD-PARTY-NOTICES.md.
 //
 // Load with `ThemeFile::open`; the loop picks `<dark>` or `<light>` to match
 // the terminal background. The root holds the dark palette, so the file is a

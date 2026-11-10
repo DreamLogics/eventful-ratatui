@@ -1,6 +1,9 @@
 #![schema("crate:eventful-ratatui@0.1")]
 // Neutral
 // Neutral grays with a white or black primary, after shadcn/ui.
+// The dark colors are those of ratcn's default theme (MIT, Copyright (c)
+// 2026 Kristofer Lund, https://github.com/kristoferlund/ratcn); see
+// THIRD-PARTY-NOTICES.md.
 //
 // Load with `ThemeFile::open`; the loop picks `<dark>` or `<light>` to match
 // the terminal background. The root holds the dark palette, so the file is a

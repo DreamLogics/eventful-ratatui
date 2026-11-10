@@ -2,6 +2,9 @@
 // Tokyo Night
 // Tokyo Night: Night for dark terminals, Day for light ones.
 // https://github.com/folke/tokyonight.nvim
+// The dark variant's color mapping and tuning follow ratcn (MIT, Copyright
+// (c) 2026 Kristofer Lund, https://github.com/kristoferlund/ratcn); see
+// THIRD-PARTY-NOTICES.md.
 //
 // Load with `ThemeFile::open`; the loop picks `<dark>` or `<light>` to match
 // the terminal background. The root holds the dark palette, so the file is a
