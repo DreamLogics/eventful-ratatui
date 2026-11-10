@@ -10,7 +10,7 @@ repository.workspace = true
 description = "Ratatui applications on eventful-rs: components, focus, key bindings and a redraw loop"
 keywords = ["tui", "ratatui", "events", "async", "terminal"]
 categories = ["command-line-interface", "asynchronous"]
-publish = false # Until the 0.1 release.
+readme = "../README.md"
 
 [dependencies]
 eventful-rs.workspace = true
@@ -32,6 +32,9 @@ rustix.workspace = true
 # Where `crate:eventful-ratatui` schema references in theme files point.
 [package.metadata.crol]
 schema = "themes/theme.schema.crol"
+
+[package.metadata.docs.rs]
+all-features = true
 
 [features]
 default = ["components"]

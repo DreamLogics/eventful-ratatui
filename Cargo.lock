@@ -457,7 +457,7 @@ dependencies = [
 
 [[package]]
 name = "eventful-ratatui"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "crol",
  "crossterm",
@@ -476,7 +476,7 @@ dependencies = [
 
 [[package]]
 name = "eventful-ratatui-macros"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
