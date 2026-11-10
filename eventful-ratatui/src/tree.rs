@@ -87,6 +87,10 @@ struct Tree {
     pointer: Option<Position>,
     /// The components under the pointer, innermost first.
     hovered: Vec<*const ()>,
+    /// Components that read the pointer position in the frame being
+    /// rendered, and in the last one: they redraw on every move over them.
+    tracking: Vec<*const ()>,
+    tracking_last: Vec<*const ()>,
 }
 
 thread_local! {
@@ -192,6 +196,7 @@ pub(crate) fn begin_frame() {
         tree.open.clear();
         tree.viewports.clear();
         tree.layer = BASE;
+        tree.tracking.clear();
         mem::take(&mut tree.frame)
     });
 }
@@ -205,6 +210,7 @@ pub(crate) fn set_layer(layer: u64) {
 pub(crate) fn end_frame() {
     let _old = TREE.with_borrow_mut(|tree| {
         let frame = mem::take(&mut tree.frame);
+        mem::swap(&mut tree.tracking, &mut tree.tracking_last);
         mem::replace(&mut tree.last, frame)
     });
 }
@@ -243,9 +249,29 @@ pub(crate) fn hit(
         .rposition(|node| scope(node) && node.area.contains(position))
 }
 
-/// Remember where the pointer is.
-pub(crate) fn set_pointer(position: Position) {
-    TREE.with_borrow_mut(|tree| tree.pointer = Some(position));
+/// Remember where the pointer is. Returns whether it moved to another
+/// cell while the innermost hovered component reads the pointer position.
+pub(crate) fn set_pointer(position: Position) -> bool {
+    TREE.with_borrow_mut(|tree| {
+        let moved = tree.pointer != Some(position);
+        tree.pointer = Some(position);
+        // Only the innermost one: over a child, the child is what changes.
+        moved
+            && tree
+                .hovered
+                .first()
+                .is_some_and(|addr| tree.tracking_last.contains(addr))
+    })
+}
+
+/// Note that the component at `addr` reads the pointer position while
+/// rendering.
+pub(crate) fn track_pointer(addr: *const ()) {
+    TREE.with_borrow_mut(|tree| {
+        if tree.active && !tree.tracking.contains(&addr) {
+            tree.tracking.push(addr);
+        }
+    });
 }
 
 /// Where the pointer was last seen.

@@ -74,8 +74,14 @@ pub fn is_hovered<C: ?Sized>(component: &C) -> bool {
 }
 
 /// Where the pointer is, if `component` is hovered. See [`is_hovered`].
+///
+/// Calling it from `render` marks the component as following the pointer:
+/// it then redraws on every move over it, for hover effects on parts of it,
+/// like rows or tabs.
 pub fn hover_position<C: ?Sized>(component: &C) -> Option<Position> {
-    is_hovered(component).then(tree::pointer).flatten()
+    let addr = addr_of(component);
+    tree::track_pointer(addr);
+    tree::is_hovered(addr).then(tree::pointer).flatten()
 }
 
 /// Where `event` happened.

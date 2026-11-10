@@ -357,3 +357,32 @@ fn modals_hide_what_is_below_from_the_pointer() {
     ui.render();
     assert!(!below.is_hovered(), "the modal covers it");
 }
+
+#[test]
+fn hover_moves_between_parts_of_one_component() {
+    // Tabs are one component: moving between titles must still redraw.
+    let tabs = Tabs::new()
+        .page("One", Label::new("1"))
+        .page("Two", Label::new("2"))
+        .page("Three", Label::new("3"));
+    let mut ui = Harness::new(tabs, 30, 2);
+    let theme = theme::current();
+    let lit = theme
+        .fill(Fill::Ghost, Interaction::default().hovered(true))
+        .bg
+        .unwrap();
+    // "  One  " 0..7, gap, "  Two  " 8..15, gap, "  Three  " 16..25.
+    ui.hover(10, 0);
+    assert_eq!(ui.buffer()[(10, 0)].bg, lit, "Two is lit");
+    ui.hover(18, 0);
+    assert_eq!(ui.buffer()[(18, 0)].bg, lit, "Three is lit");
+    assert_ne!(ui.buffer()[(10, 0)].bg, lit, "Two is not any more");
+    let before = ui.renders();
+    ui.hover(1, 1);
+    ui.hover(2, 1);
+    assert_eq!(
+        ui.renders(),
+        before + 1,
+        "moves over the page only redraw once, leaving the titles"
+    );
+}

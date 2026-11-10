@@ -98,7 +98,10 @@ impl Dispatcher {
         mouse: &MouseEvent,
     ) {
         let position = Position::new(mouse.column, mouse.row);
-        tree::set_pointer(position);
+        if tree::set_pointer(position) {
+            // A component draws hover on parts of itself.
+            invalidate::invalidate();
+        }
         update_hover();
         let floor = overlay::mouse_floor();
         let press = matches!(mouse.kind, MouseEventKind::Down(_));
