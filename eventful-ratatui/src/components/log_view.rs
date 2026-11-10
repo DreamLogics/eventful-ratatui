@@ -14,12 +14,36 @@ use std::{
 };
 
 handle! {
-    /// An append-only view of lines, like a log or a chat history. It
-    /// follows new lines while scrolled to the bottom and holds still while
-    /// scrolled up. Old lines are dropped beyond [`max_lines`](Self::max_lines).
+    /// An append-only view of lines, like a log or a chat history.
     ///
-    /// Up/Down, PageUp/PageDown and Home/End scroll while it has focus; the
-    /// wheel scrolls. End returns to following.
+    /// It follows new lines while scrolled to the bottom and holds still
+    /// while scrolled up. Old lines are dropped beyond
+    /// [`max_lines`](Self::max_lines). Lines keep their styles, also when
+    /// [wrapped](Self::wrap). A scrollbar appears when the lines do not fit.
+    ///
+    /// Up/Down scroll by a row, PageUp/PageDown by a screen and Home to the
+    /// top while it has focus; the wheel scrolls three rows at a time. End
+    /// returns to following.
+    ///
+    /// ```
+    /// use eventful_ratatui::{components::LogView, testing::Harness};
+    ///
+    /// let log = LogView::new().max_lines(100);
+    /// let mut ui = Harness::new(log.clone(), 10, 2);
+    /// for i in 0..5 {
+    ///     log.push(format!("line {i}"));
+    /// }
+    /// ui.render();
+    /// assert!(ui.lines()[1].starts_with("line 4"), "follows the bottom");
+    ///
+    /// ui.key("tab").key("up");
+    /// assert_eq!(log.scrolled_back(), 1);
+    /// log.push("line 5");
+    /// ui.render();
+    /// assert!(ui.lines()[1].starts_with("line 3"), "holds still");
+    /// ui.key("end");
+    /// assert!(ui.lines()[1].starts_with("line 5"), "follows again");
+    /// ```
     LogView(State)
 }
 
@@ -48,16 +72,19 @@ impl LogView {
         }))
     }
     /// Wrap long lines at word boundaries instead of cutting them off.
+    /// Scrolling then works by screen rows rather than lines.
     pub fn wrap(self) -> Self {
         self.0.wrap.set(true);
         self
     }
-    /// Keep at most `max` lines.
+    /// Keep at most `max` lines (at least 1; the default is 10 000). When a
+    /// push goes over, the oldest lines are dropped.
     pub fn max_lines(self, max: usize) -> Self {
         self.0.max.set(max.max(1));
         self
     }
-    /// Append a line.
+    /// Append a line at the bottom. While following, the view shows it at
+    /// the next render; while scrolled back, the view holds still.
     pub fn push(&self, line: impl Into<Line<'static>>) {
         let mut lines = self.0.lines.borrow_mut();
         lines.push_back(line.into());
@@ -72,7 +99,7 @@ impl LogView {
         }
         invalidate::invalidate();
     }
-    /// Remove every line.
+    /// Remove every line and return to following.
     pub fn clear(&self) {
         self.0.lines.borrow_mut().clear();
         self.0.back.set(0);
@@ -86,7 +113,8 @@ impl LogView {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
-    /// Lines scrolled up from the bottom; 0 while following.
+    /// Rows scrolled up from the bottom; 0 while following. Rows are lines
+    /// unless [`wrap`](Self::wrap) is on.
     pub fn scrolled_back(&self) -> usize {
         self.0.back.get()
     }

@@ -20,13 +20,30 @@ use std::{
 };
 
 /// A short notification in the bottom-right corner that disappears by
-/// itself. Toasts stack, take no focus, and close early on a click.
+/// itself.
+///
+/// Toasts stack, newest at the bottom, and close early on a click. They are
+/// a passive [`overlay`](crate::overlay): they take no focus and block no
+/// input to the screen below. Toasts belong to the loop (or
+/// [`Harness`](crate::testing::Harness)) of the thread that shows them, so
+/// show them from the UI shard.
 ///
 /// ```
 /// use eventful_ratatui::prelude::*;
 ///
 /// Toast::success("Saved").show();
 /// Toast::error("Connection lost").duration(std::time::Duration::from_secs(10)).show();
+/// ```
+///
+/// In a test:
+///
+/// ```
+/// use eventful_ratatui::{prelude::*, testing::Harness};
+///
+/// let mut ui = Harness::new(Label::new(""), 30, 6);
+/// Toast::info("Saved").show();
+/// ui.render();
+/// assert!(ui.text().contains("Saved"));
 /// ```
 #[derive(Clone, Debug)]
 pub struct Toast {
@@ -37,7 +54,9 @@ pub struct Toast {
 
 impl Toast {
     /// A toast in `tone` saying `message`, shown for four seconds. The tone
-    /// colors its border and marker.
+    /// colors its border and marker. The shortcuts [`info`](Self::info),
+    /// [`success`](Self::success), [`warning`](Self::warning) and
+    /// [`error`](Self::error) pick the tone for you.
     pub fn new(tone: Tone, message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
@@ -45,28 +64,31 @@ impl Toast {
             duration: Duration::from_secs(4),
         }
     }
-    /// Neutral information.
+    /// A toast for neutral information, in [`Tone::Info`].
     pub fn info(message: impl Into<String>) -> Self {
         Self::new(Tone::Info, message)
     }
-    /// Something worked.
+    /// A toast saying something worked, in [`Tone::Success`].
     pub fn success(message: impl Into<String>) -> Self {
         Self::new(Tone::Success, message)
     }
-    /// Something needs attention.
+    /// A toast saying something needs attention, in [`Tone::Warning`].
     pub fn warning(message: impl Into<String>) -> Self {
         Self::new(Tone::Warning, message)
     }
-    /// Something failed.
+    /// A toast saying something failed, in [`Tone::Error`].
     pub fn error(message: impl Into<String>) -> Self {
         Self::new(Tone::Error, message)
     }
-    /// How long it stays.
+    /// How long it stays on screen from [`show`](Self::show); four seconds
+    /// by default.
     pub fn duration(mut self, duration: Duration) -> Self {
         self.duration = duration;
         self
     }
-    /// Show it.
+    /// Show it below the toasts already shown. Returns at once; the toast
+    /// closes by itself after its [`duration`](Self::duration), or on a
+    /// click.
     pub fn show(self) {
         let until = Instant::now() + self.duration;
         TOASTS.with_borrow_mut(|toasts| toasts.entries.push((self, until)));

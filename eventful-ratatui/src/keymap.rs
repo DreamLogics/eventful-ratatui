@@ -1,6 +1,46 @@
-//! [`Keymap`]: a builder mapping key chords (`"j"`, `"ctrl+s"`) to closures
-//! over a receiver, plus the [`KeyChord`] parser. [`key_events`](crate::key_events)
-//! checks chords at compile time with the same syntax.
+//! Key bindings: [`KeyChord`], a key plus modifiers parsed from strings like
+//! `"j"` or `"ctrl+s"`, and [`Keymap`], a builder mapping chords to closures
+//! over a receiver.
+//!
+//! [`key_events`](crate::key_events) binds chords to eventful-rs events
+//! instead, and checks them at compile time with the same syntax. Use a
+//! [`Keymap`] for bindings that only the owning component needs, or that
+//! are only known at run time.
+//!
+//! ```
+//! use eventful_ratatui::{prelude::*, testing::Harness};
+//! use std::cell::Cell;
+//!
+//! struct Pager {
+//!     page: Cell<u32>,
+//!     keys: Keymap<Pager>,
+//! }
+//! impl Pager {
+//!     fn turn(&self, by: i32) {
+//!         self.page.set(self.page.get().saturating_add_signed(by));
+//!         invalidate::invalidate();
+//!     }
+//! }
+//! impl Component for Pager {
+//!     fn render(&self, area: Rect, buf: &mut Buffer) {
+//!         format!("page {}", self.page.get()).render(area, buf);
+//!     }
+//!     fn on_input(&self, event: &InputEvent) -> Handled {
+//!         self.keys.dispatch(self, event)
+//!     }
+//! }
+//!
+//! let pager = Pager {
+//!     page: Cell::new(1),
+//!     keys: Keymap::new()
+//!         .bind("pagedown", |p: &Pager| p.turn(1))
+//!         .bind("space", |p: &Pager| p.turn(1))
+//!         .bind("pageup", |p: &Pager| p.turn(-1)),
+//! };
+//! let mut ui = Harness::new(pager, 10, 1);
+//! ui.keys(&["space", "pagedown", "pageup"]);
+//! assert_eq!(ui.lines(), ["page 2"]);
+//! ```
 use crate::Handled;
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use std::{fmt, str::FromStr};
@@ -15,6 +55,32 @@ use std::{fmt, str::FromStr};
 /// `pageup`, `pagedown`, `up`, `down`, `left`, `right`, `space`, `plus` and
 /// `f1`–`f24`. Names are case-insensitive; characters are not, and `"J"`
 /// means shift+j.
+///
+/// Some names have aliases: `control`, `option` (alt), `cmd` (super),
+/// `return`, `escape`, `del`, `ins`, `pgup` and `pgdn`. A trailing `+` is the
+/// plus key itself, so `"+"` and `"ctrl++"` work. Shift folds into
+/// characters and into Tab, so `"shift+j"` equals `"J"` and `"shift+tab"`
+/// equals `"backtab"`, matching what terminals report either way.
+///
+/// ```
+/// use eventful_ratatui::prelude::*;
+///
+/// // Names are case-insensitive...
+/// let save: KeyChord = "Ctrl+s".parse()?;
+/// assert_eq!(save, KeyChord::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+/// assert_eq!(save.to_string(), "ctrl+s");
+/// // ...characters are not: this is ctrl+shift+s.
+/// assert_ne!("ctrl+S".parse::<KeyChord>()?, save);
+///
+/// assert_eq!("shift+j".parse::<KeyChord>()?, "J".parse()?);
+/// assert_eq!("shift+tab".parse::<KeyChord>()?.code(), KeyCode::BackTab);
+/// assert!("ctrl+nope".parse::<KeyChord>().is_err());
+/// # Ok::<(), eventful_ratatui::keymap::ParseKeyChordError>(())
+/// ```
+///
+/// [`Display`](fmt::Display) writes the canonical form, lowercase with
+/// modifiers in a fixed order, which parses back to the same chord: use it
+/// for help lines.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct KeyChord {
     /// The key, with shift folded into characters.
@@ -24,7 +90,8 @@ pub struct KeyChord {
 }
 
 impl KeyChord {
-    /// A chord for `code` with `modifiers`, normalized.
+    /// A chord for `code` with `modifiers`, normalized: shift folds into
+    /// characters (uppercased) and turns Tab into `BackTab`.
     pub fn new(code: KeyCode, modifiers: KeyModifiers) -> Self {
         let (code, modifiers) = match code {
             // Terminals report the shifted character, sometimes with SHIFT.
@@ -44,7 +111,15 @@ impl KeyChord {
     pub(crate) const fn from_normalized(code: KeyCode, modifiers: KeyModifiers) -> Self {
         Self { code, modifiers }
     }
-    /// The chord a key event represents.
+    /// The chord a key event represents. Its kind (press, repeat, release)
+    /// is ignored.
+    ///
+    /// ```
+    /// use eventful_ratatui::prelude::*;
+    ///
+    /// let event = KeyEvent::new(KeyCode::Char('J'), KeyModifiers::SHIFT);
+    /// assert_eq!(KeyChord::from_event(&event).to_string(), "J");
+    /// ```
     pub fn from_event(key: &KeyEvent) -> Self {
         Self::new(key.code, key.modifiers)
     }
@@ -151,7 +226,15 @@ impl fmt::Display for KeyChord {
     }
 }
 
-/// A key chord string could not be parsed.
+/// A key chord string could not be parsed: an unknown modifier or key name,
+/// or a missing key, as in `"ctrl+"`. Displays the input and the reason.
+///
+/// ```
+/// use eventful_ratatui::KeyChord;
+///
+/// let err = "ctrl+".parse::<KeyChord>().unwrap_err();
+/// assert_eq!(err.to_string(), "invalid key chord `ctrl+`: missing key");
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParseKeyChordError {
     /// The rejected input.
@@ -204,6 +287,7 @@ type Action<T> = Box<dyn Fn(&T)>;
 ///
 /// Dispatch is synchronous, so the result can stop input from bubbling up the
 /// focus chain. Actions that should reach several listeners can emit an event.
+/// See the [module docs](self) for a keymap inside a component.
 pub struct Keymap<T: ?Sized> {
     /// Bindings in insertion order; the first match wins.
     bindings: Vec<(KeyChord, Action<T>)>,
@@ -217,8 +301,9 @@ impl<T: ?Sized> Keymap<T> {
         }
     }
 
-    /// Bind `chord` to `action`. Bind a chord again to add an alternative key
-    /// for the same action.
+    /// Bind `chord` to `action`. `chord` is a [`KeyChord`] or a string that
+    /// parses as one. Bind several chords to the same action for alternative
+    /// keys; if a chord is bound twice, the first binding wins.
     ///
     /// # Panics
     /// Panics if `chord` is a string that does not parse as a [`KeyChord`].
@@ -233,8 +318,9 @@ impl<T: ?Sized> Keymap<T> {
         self
     }
 
-    /// Run the action bound to a key press or repeat in `event`, if any.
-    /// Key releases and other events are not handled.
+    /// Run the action bound to a key press or repeat in `event`, if any, and
+    /// return [`Handled::Yes`]. Key releases, unbound keys and other events
+    /// return [`Handled::No`], so they keep bubbling.
     pub fn dispatch(&self, receiver: &T, event: &Event) -> Handled {
         let Some(chord) = pressed(event) else {
             return Handled::No;
@@ -247,6 +333,14 @@ impl<T: ?Sized> Keymap<T> {
     }
 
     /// The bound chords, in insertion order, for help screens.
+    ///
+    /// ```
+    /// use eventful_ratatui::Keymap;
+    ///
+    /// let keys = Keymap::<()>::new().bind("q", |_| {}).bind("ctrl+c", |_| {});
+    /// let help: Vec<String> = keys.chords().map(|chord| chord.to_string()).collect();
+    /// assert_eq!(help, ["q", "ctrl+c"]);
+    /// ```
     pub fn chords(&self) -> impl Iterator<Item = KeyChord> + '_ {
         self.bindings.iter().map(|(chord, _)| *chord)
     }

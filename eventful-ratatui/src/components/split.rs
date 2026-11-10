@@ -11,8 +11,26 @@ use std::{cell::Cell, rc::Rc};
 
 handle! {
     /// Two panes side by side (or stacked) with a divider the user can drag,
-    /// like a sidebar next to content. Alt+arrows also move the divider while
-    /// focus is inside.
+    /// like a sidebar next to content.
+    ///
+    /// The divider is a one-cell line that lights up under the pointer and
+    /// while dragged. While focus is inside either pane, Alt+Left/Right (or
+    /// Alt+Up/Down when stacked) move it by two cells. Each pane keeps at
+    /// least [`min_size`](Self::min_size) cells. A split takes all the space
+    /// it is given.
+    ///
+    /// ```
+    /// use eventful_ratatui::{prelude::*, testing::Harness};
+    ///
+    /// let split = Split::horizontal(Label::new("left"), Label::new("right"));
+    /// let mut ui = Harness::new(split.clone(), 21, 1);
+    /// assert_eq!(ui.lines(), ["left      │right"]);
+    ///
+    /// // Drag the divider to the left.
+    /// ui.drag((10, 0), (5, 0));
+    /// assert_eq!(ui.lines(), ["left │right"]);
+    /// assert!((split.get_ratio() - 0.25).abs() < 0.01);
+    /// ```
     Split(State)
 }
 
@@ -50,21 +68,26 @@ impl Split {
             dragging: Cell::new(false),
         }))
     }
-    /// Give the first pane `ratio` (0..=1) of the space.
+    /// Give the first pane `ratio` of the space, from 0 to 1; 0.5 by default.
+    /// Values outside are clamped, and [`min_size`](Self::min_size) still
+    /// applies.
     pub fn ratio(self, ratio: f64) -> Self {
         self.set_ratio(ratio);
         self
     }
-    /// The first pane's share.
+    /// The first pane's share of the space, from 0 to 1, as last set or
+    /// dragged.
     pub fn get_ratio(&self) -> f64 {
         self.0.ratio.get()
     }
-    /// Move the divider.
+    /// Move the divider to give the first pane `ratio` of the space, clamped
+    /// to 0..=1, and redraw.
     pub fn set_ratio(&self, ratio: f64) {
         self.0.ratio.set(ratio.clamp(0.0, 1.0));
         invalidate::invalidate();
     }
-    /// Keep each pane at least `cells` wide (or tall).
+    /// Keep each pane at least `cells` wide (or tall); 3 by default. When
+    /// the split is too small for both, each pane gets half.
     pub fn min_size(self, cells: u16) -> Self {
         self.0.min.set(cells);
         self

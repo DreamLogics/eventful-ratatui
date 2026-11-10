@@ -4,11 +4,25 @@
 //! colors through a fixed VGA approximation. `Indexed` and `Reset` carry no
 //! channels and pass through unchanged.
 //!
+//! ```
+//! use eventful_ratatui::{prelude::*, theme::color};
+//!
+//! let black = Color::Rgb(0, 0, 0);
+//! let white = Color::Rgb(255, 255, 255);
+//! assert_eq!(color::blend(black, white, 50), Color::Rgb(128, 128, 128));
+//! assert_eq!(color::lift(black, 10), Color::Rgb(26, 26, 26));
+//! assert!(color::contrast(black, white).is_some_and(|ratio| ratio > 20.9));
+//! assert!(color::is_light(white));
+//! assert_eq!(color::blend(Color::Reset, white, 50), Color::Reset);
+//! ```
+//!
 //! The channel table and the blend rounding follow ratcn's `color` module
 //! (MIT, Copyright (c) 2026 Kristofer Lund); see `THIRD-PARTY-NOTICES.md`.
 use ratatui::style::Color;
 
-/// The RGB channels of `color`, if it has any.
+/// The RGB channels of `color`, if it has any: `None` for `Indexed` and
+/// `Reset`. Named colors use the VGA values, so `Red` is `(128, 0, 0)` and
+/// `LightRed` is `(255, 0, 0)`.
 pub const fn channels(color: Color) -> Option<(u8, u8, u8)> {
     Some(match color {
         Color::Rgb(r, g, b) => (r, g, b),
@@ -32,8 +46,9 @@ pub const fn channels(color: Color) -> Option<(u8, u8, u8)> {
     })
 }
 
-/// Blend `color` `percent` of the way toward `toward`. Colors without
-/// channels come back unchanged.
+/// Blend `color` `percent` of the way toward `toward`, rounding each
+/// channel. `percent` above 100 counts as 100. If either color has no
+/// channels, `color` comes back unchanged.
 pub const fn blend(color: Color, toward: Color, percent: u8) -> Color {
     let (Some((r, g, b)), Some((tr, tg, tb))) = (channels(color), channels(toward)) else {
         return color;
@@ -47,7 +62,8 @@ const fn mix(a: u8, b: u8, amount: u16) -> u8 {
     ((a as u16 * (100 - amount) + b as u16 * amount + 50) / 100) as u8
 }
 
-/// Relative luminance per WCAG 2.1, from 0 (black) to 1 (white).
+/// Relative luminance per WCAG 2.1, from 0 (black) to 1 (white); `None`
+/// for colors without channels.
 pub fn luminance(color: Color) -> Option<f64> {
     let (r, g, b) = channels(color)?;
     let linear = |c: u8| {
@@ -61,7 +77,9 @@ pub fn luminance(color: Color) -> Option<f64> {
     Some(0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b))
 }
 
-/// The WCAG 2.1 contrast ratio between two colors, from 1 to 21.
+/// The WCAG 2.1 contrast ratio between two colors, from 1 (equal) to 21
+/// (black on white), in either order; `None` if either has no channels.
+/// Body text wants at least 4.5.
 pub fn contrast(a: Color, b: Color) -> Option<f64> {
     let (a, b) = (luminance(a)?, luminance(b)?);
     Some((a.max(b) + 0.05) / (a.min(b) + 0.05))

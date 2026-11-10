@@ -73,6 +73,12 @@
 //!
 //! Delivery is queued, like all eventful-rs events. Read the current state
 //! synchronously when you need it right away: `name.value()`.
+//!
+//! Every handle also has `focus`, `is_focused`, `area` and `is_hovered`.
+//! Popups ([`Dialog`], [`Menu`], [`CommandPalette`], [`Toast`] and the open
+//! lists of [`Select`] and [`ComboBox`]) are [overlays](crate::overlay).
+//! Test components with [`Harness`](crate::testing::Harness); every
+//! component's docs have an example.
 mod accordion;
 mod badge;
 mod button;
@@ -142,6 +148,12 @@ use ratatui_core::layout::Position;
 /// records itself in the render tree, plus focus helpers and, with
 /// `events = (Set, SignalsExt)`, the event source impls over the state's
 /// `events` field.
+///
+/// The state does the work: it implements `Component`, and focus, hover and
+/// areas are keyed by the state's address, so `focus::is_focused(self)`
+/// inside the state matches what the handle's helpers report. The handle's
+/// `render` records a node first, so children rendered by the state nest
+/// under it in the tree that drives Tab order and mouse routing.
 macro_rules! handle {
     ($(#[$meta:meta])* $name:ident($state:ty) $(, events = ($set:ty, $ext:path))?) => {
         $(#[$meta])*
@@ -174,7 +186,7 @@ macro_rules! handle {
         }
 
         impl $name {
-            /// Give it keyboard focus.
+            /// Give it keyboard focus, and redraw.
             pub fn focus(&self) {
                 $crate::focus::set(&*self.0);
             }
@@ -182,11 +194,13 @@ macro_rules! handle {
             pub fn is_focused(&self) -> bool {
                 $crate::focus::is_focused(&*self.0)
             }
-            /// Where it was last drawn, if it was.
+            /// The area it was last drawn into, or `None` if it was not
+            /// rendered in the last frame.
             pub fn area(&self) -> ::core::option::Option<::ratatui_core::layout::Rect> {
                 $crate::mouse::area_of(&*self.0)
             }
-            /// Whether the mouse pointer is over it.
+            /// Whether the mouse pointer was over it in the last frame, and
+            /// not hidden by an overlay above it.
             pub fn is_hovered(&self) -> bool {
                 $crate::mouse::is_hovered(&*self.0)
             }

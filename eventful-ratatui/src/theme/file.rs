@@ -12,6 +12,21 @@ use std::{fmt, io, path::Path, str::FromStr};
 /// Opening a file only reads it; [`load`](Self::load) evaluates the variant
 /// for an appearance. Hand it to [`Tui::theme_file`](crate::Tui::theme_file)
 /// to load the variant matching the terminal.
+///
+/// ```
+/// use eventful_ratatui::theme::{Appearance, ThemeFile};
+///
+/// let path = concat!(env!("CARGO_MANIFEST_DIR"), "/themes/nord.crod");
+/// let file = ThemeFile::open(path)?;
+/// let light = file.load(Appearance::Light)?;
+/// assert_eq!(light.name, "Nord Light");
+/// assert_eq!(light.appearance(), Appearance::Light);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+///
+/// The files in the crate's `themes/` directory start with
+/// `#![schema("crate:eventful-ratatui@0.1")]`, which lets `crol check` and the
+/// CROL language server check them; copy one to start a theme.
 #[derive(Clone, Debug)]
 pub struct ThemeFile {
     /// Where the source came from, for messages.
@@ -20,10 +35,11 @@ pub struct ThemeFile {
 }
 
 impl ThemeFile {
-    /// Read the theme file at `path`.
+    /// Read the theme file at `path`. The path names it in error messages.
+    /// The contents are not checked until [`load`](Self::load).
     ///
     /// # Errors
-    /// Fails if the file cannot be read.
+    /// Returns the I/O error if the file cannot be read or is not UTF-8.
     pub fn open(path: impl AsRef<Path>) -> io::Result<Self> {
         let path = path.as_ref();
         Ok(Self::from_source(
@@ -32,7 +48,35 @@ impl ThemeFile {
         ))
     }
 
-    /// A theme file from its text; `name` names it in error messages.
+    /// A theme file from its text; `name` names it in error messages. For
+    /// themes embedded with `include_str!` or fetched from elsewhere.
+    ///
+    /// ```
+    /// use eventful_ratatui::{prelude::*, theme::{Appearance, ThemeFile}};
+    ///
+    /// let source = r##"
+    ///     name: "Mono"
+    ///     palette: {
+    ///         background: "#101010", surface: "#181818", field: "#202020",
+    ///         foreground: "#e0e0e0", muted: "#a0a0a0", primary: "#e0e0e0",
+    ///         primary_foreground: "#101010", secondary: "#303030",
+    ///         secondary_foreground: "#e0e0e0", accent: "white",
+    ///         destructive: "#ff6060", destructive_foreground: "#101010",
+    ///         success: "#60d060", warning: "#e0c040", info: "#60b0e0",
+    ///         border: "#505050", ring: &self.primary, selection: "#404040",
+    ///     }
+    ///     <light> {
+    ///         name: "Mono Light",
+    ///         palette.background: "#fafafa",
+    ///     }
+    /// "##;
+    /// let file = ThemeFile::from_source("mono.crod", source);
+    /// let dark = file.load(Appearance::Dark)?;
+    /// assert_eq!(dark.name, "Mono");
+    /// assert_eq!(dark.palette.ring, Color::Rgb(0xe0, 0xe0, 0xe0));
+    /// assert_eq!(file.load(Appearance::Light)?.name, "Mono Light");
+    /// # Ok::<(), eventful_ratatui::theme::ThemeError>(())
+    /// ```
     pub fn from_source(name: impl Into<String>, source: impl Into<String>) -> Self {
         Self {
             name: name.into(),
@@ -45,11 +89,14 @@ impl ThemeFile {
         &self.name
     }
 
-    /// Evaluate the variant for `appearance`.
+    /// Evaluate the variant for `appearance`: the values at the root, with
+    /// the `<dark>` or `<light>` block applied on top. The theme gets the
+    /// default symbols and rounded borders.
     ///
     /// # Errors
-    /// Fails if the file does not parse, a palette field is missing, or a
-    /// color is not a color.
+    /// Returns a [`ThemeError`] naming the file if it does not parse, the
+    /// `name` or a palette field is missing, or a palette value is not a
+    /// color (`"#rrggbb"` or a color name).
     pub fn load(&self, appearance: Appearance) -> Result<Theme, ThemeError> {
         let variants = CrolVariants::new().add_grouped(["dark", "light"]);
         // Data mode: variants need layered data, so the file is one layer.
@@ -73,7 +120,17 @@ impl ThemeFile {
     }
 }
 
-/// A theme file that could not be loaded.
+/// A theme file that could not be loaded. Displays as
+/// `theme <file>: <what went wrong>`, naming the field where it can.
+///
+/// ```
+/// use eventful_ratatui::theme::{Appearance, ThemeFile};
+///
+/// let err = ThemeFile::from_source("short.crod", r#"name: "Short""#)
+///     .load(Appearance::Dark)
+///     .unwrap_err();
+/// assert!(err.to_string().starts_with("theme short.crod:"));
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ThemeError {
     message: String,

@@ -173,7 +173,7 @@ macro_rules! toggle_api {
             pub fn new(label: impl Into<String>) -> Self {
                 Self(State::new($kind, label.into()))
             }
-            /// Start checked or not.
+            /// Start checked (`true`) or not; toggles start unchecked.
             pub fn checked(self, on: bool) -> Self {
                 self.0.on.set(on);
                 self
@@ -182,12 +182,14 @@ macro_rules! toggle_api {
             pub fn is_checked(&self) -> bool {
                 self.0.on.get()
             }
-            /// Turn it on or off without emitting `toggled`.
+            /// Turn it on or off without emitting `toggled`, for changes
+            /// that did not come from the user.
             pub fn set_checked(&self, on: bool) {
                 self.0.on.set(on);
                 invalidate::invalidate();
             }
-            /// Flip it as the user would, emitting `toggled`.
+            /// Flip it as the user would, emitting `toggled`. Does nothing
+            /// while disabled.
             pub fn toggle(&self) {
                 self.0.toggle();
             }
@@ -195,16 +197,17 @@ macro_rules! toggle_api {
             pub fn label(&self) -> String {
                 self.0.label.borrow().clone()
             }
-            /// Change the label.
+            /// Change the label and redraw.
             pub fn set_label(&self, label: impl Into<String>) {
                 *self.0.label.borrow_mut() = label.into();
                 invalidate::invalidate();
             }
-            /// Whether it can be toggled and focused.
+            /// Whether it can be toggled and focused. Toggles start enabled.
             pub fn is_enabled(&self) -> bool {
                 self.0.enabled.get()
             }
-            /// Enable or disable it.
+            /// Enable or disable it. Disabled, it draws dimmed, ignores
+            /// input, and Tab skips it.
             pub fn set_enabled(&self, enabled: bool) {
                 self.0.enabled.set(enabled);
                 invalidate::invalidate();
@@ -216,6 +219,20 @@ macro_rules! toggle_api {
 handle! {
     /// A checkbox: `■ Label`. Space, Enter or a click toggles it and emits
     /// [`toggled`](super::ToggleEventsSignalsExt::toggled).
+    ///
+    /// A disabled checkbox draws dimmed, ignores input and is skipped by Tab.
+    ///
+    /// ```
+    /// use eventful_ratatui::{components::Checkbox, testing::Harness};
+    ///
+    /// let bold = Checkbox::new("Bold");
+    /// let mut ui = Harness::new(bold.clone(), 10, 1);
+    /// assert_eq!(ui.lines(), [" □ Bold"]);
+    ///
+    /// ui.key("tab").key("space");
+    /// assert!(bold.is_checked());
+    /// assert_eq!(ui.lines(), [" ■ Bold"]);
+    /// ```
     Checkbox(State), events = (ToggleEventsEventSet, ToggleEventsSignalsExt)
 }
 toggle_api!(Checkbox, Kind::Checkbox);
@@ -223,6 +240,18 @@ toggle_api!(Checkbox, Kind::Checkbox);
 handle! {
     /// An on/off switch: `▐  ●▌ Label`. Behaves like [`Checkbox`]; use it for
     /// settings that apply immediately.
+    ///
+    /// ```
+    /// use eventful_ratatui::{components::Switch, testing::Harness};
+    ///
+    /// let wifi = Switch::new("Wifi").checked(true);
+    /// let mut ui = Harness::new(wifi.clone(), 12, 1);
+    /// assert_eq!(ui.lines(), [" ▐  ●▌ Wifi"]);
+    ///
+    /// ui.click(1, 0);
+    /// assert!(!wifi.is_checked());
+    /// assert_eq!(ui.lines(), [" ▐●  ▌ Wifi"]);
+    /// ```
     Switch(State), events = (ToggleEventsEventSet, ToggleEventsSignalsExt)
 }
 toggle_api!(Switch, Kind::Switch);

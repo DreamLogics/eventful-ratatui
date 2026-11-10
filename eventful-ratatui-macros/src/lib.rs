@@ -35,7 +35,28 @@ use syn::{FnArg, ItemTrait, LitStr, Token, TraitItem, punctuated::Punctuated};
 ///
 /// Chords are checked at compile time and use the syntax of `KeyChord`.
 /// Methods take only `&self` and return nothing. A chord can be bound only
-/// once per trait.
+/// once per trait. Methods may have a default body, which runs when the
+/// receiver does not override it, like a `quit` binding.
+///
+/// Delivery is queued like every eventful-rs event: `dispatch` returns
+/// `Handled::Yes` at once, and the receiver's method runs when the shard
+/// next processes events. The re-export, `eventful_ratatui::key_events`, has
+/// a complete example.
+///
+/// # Compile errors
+///
+/// The macro rejects, with an error at the offending tokens:
+///
+/// - arguments to `#[key_events]` itself;
+/// - a method without `#[key(...)]`, or with an empty `#[key()]`;
+/// - a chord that does not parse, naming the reason (`unknown key`,
+///   `unknown modifier`, `missing key`);
+/// - a chord bound twice, naming the event that already has it;
+/// - methods with arguments besides `&self`, without `&self`, or with a
+///   return type;
+/// - `#[cfg]` or `#[cfg_attr]` on a method (put the whole trait behind it);
+/// - methods named `new`, `dispatch`, `connect_to` or `events`, which the
+///   bridge defines itself.
 #[proc_macro_attribute]
 pub fn key_events(attr: TokenStream, item: TokenStream) -> TokenStream {
     if !attr.is_empty() {

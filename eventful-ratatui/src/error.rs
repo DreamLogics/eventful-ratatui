@@ -7,8 +7,24 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Failure while running a TUI, or in the eventful-rs calls around it.
 ///
-/// Converts from eventful-rs errors, so a `#[sharded_main]` function returning
-/// [`Result`] can use `?` on `spawn`, `bind_local` and tracked emissions.
+/// Converts from eventful-rs errors, `std::io::Error` and
+/// [`ThemeError`](crate::theme::ThemeError), so a `#[sharded_main]` function
+/// returning [`Result`] can use `?` on `spawn`, `bind_local`, tracked
+/// emissions and theme loading. [`source`](std::error::Error::source)
+/// returns the wrapped error.
+///
+/// ```
+/// use eventful_ratatui::Error;
+/// use std::io;
+///
+/// fn setup() -> eventful_ratatui::Result<()> {
+///     Err(io::Error::other("no tty"))?
+/// }
+///
+/// let err = setup().unwrap_err();
+/// assert!(matches!(err, Error::Io(_)));
+/// assert_eq!(err.to_string(), "terminal i/o failed: no tty");
+/// ```
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Error {

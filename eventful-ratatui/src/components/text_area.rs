@@ -44,7 +44,27 @@ handle! {
     ///
     /// The mouse places the cursor, drags select, and the wheel scrolls.
     /// Long lines scroll horizontally. Every edit emits
-    /// [`changed`](super::TextEventsSignalsExt::changed) with the full text.
+    /// [`changed`](super::TextEventsSignalsExt::changed) with the full text;
+    /// it never emits [`submitted`](super::TextEventsSignalsExt::submitted).
+    ///
+    /// Undo keeps the last 200 steps. Every deletion, line break or
+    /// replacement of a selection starts a new step, and insertions less than
+    /// 0.8 seconds after the previous edit join the current one.
+    ///
+    /// ```
+    /// use eventful_ratatui::{components::TextArea, testing::Harness};
+    ///
+    /// let notes = TextArea::new().line_numbers().value("one\ntwo");
+    /// let mut ui = Harness::new(notes.clone(), 12, 3);
+    /// assert_eq!(ui.lines(), [" 1 one", " 2 two", ""]);
+    ///
+    /// ui.key("tab").key("end").key("enter").type_text("1.5");
+    /// assert_eq!(notes.text(), "one\n1.5\ntwo");
+    /// assert_eq!(notes.cursor(), (1, 3));
+    /// // The line break and the quick typing after it are one step.
+    /// ui.key("ctrl+z");
+    /// assert_eq!(notes.text(), "one\ntwo");
+    /// ```
     TextArea(State), events = (TextEventsEventSet, TextEventsSignalsExt)
 }
 
@@ -70,7 +90,8 @@ pub struct State {
 }
 
 impl TextArea {
-    /// An empty editor.
+    /// An empty, editable editor: one empty line, no line numbers, and Tab
+    /// moving the focus.
     pub fn new() -> Self {
         Self(Rc::new(State {
             lines: RefCell::new(vec![String::new()]),
@@ -89,27 +110,31 @@ impl TextArea {
             events: TextEventsEmissions::default(),
         }))
     }
-    /// Start with `text`.
+    /// Start with `text`, cursor at the start. See [`set_text`](Self::set_text).
     pub fn value(self, text: &str) -> Self {
         self.set_text(text);
         self
     }
-    /// Text shown while empty.
+    /// Text shown, dimmed, while the editor is empty; it is never part of
+    /// [`text`](Self::text).
     pub fn placeholder(self, placeholder: impl Into<String>) -> Self {
         *self.0.placeholder.borrow_mut() = placeholder.into();
         self
     }
-    /// Allow moving and selecting, but no edits.
+    /// Allow moving and selecting, but no edits: typing, pasting, deleting
+    /// and undo do nothing. It stays focusable, so the text can be scrolled.
     pub fn read_only(self) -> Self {
         self.0.read_only.set(true);
         self
     }
-    /// Make Tab insert four spaces instead of moving the focus.
+    /// Make Tab insert four spaces instead of moving the focus. Shift+Tab
+    /// still moves the focus back, so keyboard users are not trapped.
     pub fn tab_inserts(self) -> Self {
         self.0.tab_inserts.set(true);
         self
     }
-    /// Show line numbers in a gutter.
+    /// Show line numbers, starting at 1, in a gutter left of the text. The
+    /// gutter grows with the number of lines.
     pub fn line_numbers(self) -> Self {
         self.0.line_numbers.set(true);
         self
@@ -118,7 +143,9 @@ impl TextArea {
     pub fn text(&self) -> String {
         self.0.lines.borrow().join("\n")
     }
-    /// Replace the text without emitting `changed`; clears the undo history.
+    /// Replace the text without emitting `changed`. Lines split on `\n`, and
+    /// a `\r` before it is dropped. The cursor and scroll go back to the
+    /// start, the selection is cleared, and so is the undo history.
     pub fn set_text(&self, text: &str) {
         *self.0.lines.borrow_mut() = text
             .split('\n')
@@ -131,11 +158,12 @@ impl TextArea {
         self.0.redo.borrow_mut().clear();
         invalidate::invalidate();
     }
-    /// The cursor: line and byte offset in it.
+    /// The cursor: line index and byte offset in that line, both from zero.
+    /// The offset is always on a grapheme boundary.
     pub fn cursor(&self) -> (usize, usize) {
         self.0.cursor.get()
     }
-    /// The selected text, if any.
+    /// The selected text, lines joined with `\n`, if anything is selected.
     pub fn selected_text(&self) -> Option<String> {
         let (start, end) = self.0.selection()?;
         Some(self.0.slice(start, end))

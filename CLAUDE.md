@@ -57,5 +57,10 @@ cargo test --workspace
 cargo doc --workspace --no-deps
 ```
 
+`themes/theme.schema.crol` is generated from the theme file types, doc
+comments and source lines included, so editing `theme/file.rs` (even its
+docs) makes `the_schema_file_is_up_to_date` fail. Regenerate it with
+`CROL_UPDATE_SCHEMA=1 cargo test -p eventful-ratatui --lib the_schema`.
+
 The toolchain is pinned to 1.99.0 (the MSRV); the macro UI tests compare
 compiler output with snapshots.

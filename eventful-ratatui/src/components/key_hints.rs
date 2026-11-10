@@ -15,6 +15,17 @@ handle! {
     /// A status-bar strip of key hints: `tab switch  esc quit`.
     ///
     /// Build it by hand, or from a `#[key_events]` bridge's `BINDINGS`.
+    /// Keys are drawn in the accent style and actions muted. It only
+    /// displays the keys; bind them with [`key_events`](crate::key_events)
+    /// or in [`on_input`](crate::Component::on_input).
+    ///
+    /// ```
+    /// use eventful_ratatui::{components::KeyHints, testing::Harness};
+    ///
+    /// let hints = KeyHints::new().hint("tab", "switch").hint("esc", "quit");
+    /// let mut ui = Harness::new(hints, 30, 1);
+    /// assert_eq!(ui.lines(), [" tab  switch   esc  quit"]);
+    /// ```
     KeyHints(State)
 }
 
@@ -24,20 +35,32 @@ pub struct State {
 }
 
 impl KeyHints {
-    /// No hints yet.
+    /// No hints yet; see also [`Default`].
     pub fn new() -> Self {
         Self(Rc::new(State {
             hints: RefCell::default(),
         }))
     }
-    /// Add a hint: the keys, then what they do.
+    /// Add a hint after the others: the keys, then what they do.
     pub fn hint(self, keys: impl Into<String>, action: impl Into<String>) -> Self {
         self.0.hints.borrow_mut().push((keys.into(), action.into()));
         self
     }
-    /// Hints from `BINDINGS` of a `#[key_events]` bridge. Chords bound to
-    /// the same event are joined with `/`; event names have `_` replaced by
-    /// spaces.
+    /// Hints from `BINDINGS` of a `#[key_events]` bridge, in declaration
+    /// order. Chords bound to the same event are joined with `/`; event
+    /// names have `_` replaced by spaces.
+    ///
+    /// ```
+    /// use eventful_ratatui::{components::KeyHints, testing::Harness, KeyChord};
+    ///
+    /// let bindings: [(KeyChord, &str); 3] = [
+    ///     ("j".parse().unwrap(), "move_down"),
+    ///     ("down".parse().unwrap(), "move_down"),
+    ///     ("q".parse().unwrap(), "quit"),
+    /// ];
+    /// let mut ui = Harness::new(KeyHints::from_bindings(&bindings), 30, 1);
+    /// assert_eq!(ui.lines(), [" j/down  move down   q  quit"]);
+    /// ```
     pub fn from_bindings(bindings: &[(KeyChord, &str)]) -> Self {
         let mut hints: Vec<(String, String)> = Vec::new();
         for (chord, event) in bindings {
@@ -54,7 +77,7 @@ impl KeyHints {
             hints: RefCell::new(hints),
         }))
     }
-    /// Replace all hints.
+    /// Replace all hints, as `(keys, action)` pairs, and redraw.
     pub fn set_hints(&self, hints: impl IntoIterator<Item = (String, String)>) {
         *self.0.hints.borrow_mut() = hints.into_iter().collect();
         invalidate::invalidate();

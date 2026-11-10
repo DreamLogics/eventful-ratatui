@@ -19,10 +19,15 @@ use std::{cell::Cell, fmt, rc::Rc};
 /// A modal dialog: a title, a message, optional content and a row of
 /// buttons. [`show`](Self::show) it and await the button the user pressed.
 ///
-/// The dialog dims and blocks the screen below it. Tab cycles inside it,
-/// Esc dismisses it, and Enter in a text input inside presses the default
-/// button. Showing needs an async context on the UI shard, like a task
-/// spawned with `ShardRc::spawn_owned`:
+/// The dialog is a modal [`overlay`](crate::overlay), centered: it dims and
+/// blocks the screen below it. Buttons sit right-aligned in a row, in the
+/// order added. Tab cycles inside the dialog, Esc dismisses it, and Enter in
+/// a text input inside presses the default button. Focus goes back where it
+/// was when the dialog closes. For the common cases use [`alert`],
+/// [`confirm`] and [`prompt`].
+///
+/// Showing needs an async context on the UI shard, like a task spawned with
+/// `ShardRc::spawn_owned`:
 ///
 /// ```no_run
 /// # use eventful_ratatui::prelude::*;
@@ -41,6 +46,22 @@ use std::{cell::Cell, fmt, rc::Rc};
 /// }
 /// # }
 /// ```
+///
+/// In tests, poll the future once to open the dialog, then drive it with a
+/// [`Harness`](crate::testing::Harness):
+///
+/// ```
+/// use eventful_ratatui::{prelude::*, testing::Harness};
+/// use futures::FutureExt;
+///
+/// let mut ui = Harness::new(Label::new(""), 40, 10);
+/// let mut answer = Box::pin(confirm("Delete", "Delete 3 files?"));
+/// assert!((&mut answer).now_or_never().is_none(), "open, waiting");
+/// ui.render();
+/// assert!(ui.text().contains("Delete 3 files?"));
+/// ui.key("enter"); // OK is the default button.
+/// assert_eq!(answer.now_or_never(), Some(true));
+/// ```
 pub struct Dialog {
     title: String,
     message: Option<Text<'static>>,
@@ -52,7 +73,8 @@ pub struct Dialog {
 }
 
 impl Dialog {
-    /// A dialog titled `title`, with no buttons yet.
+    /// A dialog titled `title`, with no message, content or buttons yet. A
+    /// dialog without buttons can only be dismissed with Esc.
     pub fn new(title: impl Into<String>) -> Self {
         Self {
             title: title.into(),
@@ -64,26 +86,29 @@ impl Dialog {
             width: 50,
         }
     }
-    /// The text above the content and buttons; wrapped.
+    /// The text above the content and buttons, muted and wrapped to the
+    /// dialog's width.
     pub fn message(mut self, message: impl Into<Text<'static>>) -> Self {
         self.message = Some(message.into());
         self
     }
-    /// A component below the message, like a form.
+    /// A component below the message, like a form. Its
+    /// [`preferred_size`](crate::Component::preferred_size) sets its height.
     pub fn content(mut self, content: impl Component + 'static) -> Self {
         self.content = Some(Rc::new(content));
         self
     }
-    /// Add a plain button.
+    /// Add a plain button, after the others.
     pub fn button(self, label: impl Into<String>) -> Self {
         self.add(Button::new(label), false)
     }
     /// Add the default button: focused at first and pressed by Enter in an
-    /// input.
+    /// input. Without one, the last button added is focused at first.
     pub fn primary_button(self, label: impl Into<String>) -> Self {
         self.add(Button::new(label).primary(), true)
     }
-    /// Add a button for a destructive action.
+    /// Add a button for a destructive action, filled with the theme's
+    /// destructive color.
     pub fn destructive_button(self, label: impl Into<String>) -> Self {
         self.add(Button::new(label).destructive(), false)
     }
@@ -106,7 +131,8 @@ impl Dialog {
     }
 
     /// Show the dialog and wait until a button is pressed, returning its
-    /// index in the order added, or `None` if it was dismissed.
+    /// index in the order added, or `None` if it was dismissed with Esc.
+    /// Dropping the future closes the dialog.
     pub async fn show(self) -> Option<usize> {
         let result = Rc::new(Cell::new(None));
         let closer: Rc<Cell<Option<Closer>>> = Rc::default();
@@ -267,7 +293,15 @@ impl Component for View {
     }
 }
 
-/// Show `message` with an OK button and wait until it is dismissed.
+/// Show `message` with an OK button and wait until it is pressed or the
+/// dialog is dismissed.
+///
+/// ```no_run
+/// # use eventful_ratatui::prelude::*;
+/// # async fn example() {
+/// alert("Export", "The report was saved.").await;
+/// # }
+/// ```
 pub async fn alert(title: impl Into<String>, message: impl Into<Text<'static>>) {
     Dialog::new(title)
         .message(message)
@@ -276,7 +310,9 @@ pub async fn alert(title: impl Into<String>, message: impl Into<Text<'static>>) 
         .await;
 }
 
-/// Ask a yes/no question; `true` if confirmed with OK.
+/// Ask a yes/no question with Cancel and OK buttons, OK the default; `true`
+/// if confirmed with OK, `false` on Cancel or Esc. See [`Dialog`] for an
+/// example.
 pub async fn confirm(title: impl Into<String>, message: impl Into<Text<'static>>) -> bool {
     Dialog::new(title)
         .message(message)
@@ -287,7 +323,17 @@ pub async fn confirm(title: impl Into<String>, message: impl Into<Text<'static>>
         == Some(1)
 }
 
-/// Ask for a line of text, starting from `initial`; `None` if cancelled.
+/// Ask for a line of text in a text input below `message`, starting from
+/// `initial`. Enter or OK returns the text; Cancel or Esc returns `None`.
+///
+/// ```no_run
+/// # use eventful_ratatui::prelude::*;
+/// # async fn example() {
+/// if let Some(name) = prompt("Rename", "New name:", "draft.txt").await {
+///     // rename to `name`
+/// }
+/// # }
+/// ```
 pub async fn prompt(
     title: impl Into<String>,
     message: impl Into<Text<'static>>,

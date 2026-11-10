@@ -45,6 +45,24 @@ use std::fmt;
 
 /// Renders a component into a test buffer and feeds it input. See the
 /// [module docs](self).
+///
+/// Input methods take chords in [`KeyChord`] syntax and screen cells as
+/// `column, row`, and return `&mut Self`, so steps chain. Read the result
+/// with [`lines`](Self::lines), [`text`](Self::text),
+/// [`buffer`](Self::buffer) for styles, or [`cursor`](Self::cursor).
+///
+/// ```
+/// use eventful_ratatui::{components::TextInput, prelude::*, testing::Harness};
+///
+/// let mut ui = Harness::new(TextInput::new().placeholder("Name"), 12, 1);
+/// ui.click(0, 0).type_text("Ada").key("backspace").paste("da");
+/// assert_eq!(ui.root().text(), "Adda");
+/// // After the four characters and the input's one-cell padding.
+/// assert_eq!(ui.cursor(), Some(Position::new(5, 0)));
+/// ```
+///
+/// The harness theme is [`Theme::default`]; switch with
+/// [`theme`](Self::theme).
 pub struct Harness<C: Component + 'static> {
     root: C,
     terminal: Terminal<TestBackend>,
@@ -84,7 +102,8 @@ impl<C: Component + 'static> Harness<C> {
         &self.root
     }
 
-    /// Route `event`, then redraw if anything asked for it.
+    /// Route `event` as the loop would, then redraw if anything asked for
+    /// it. The other input methods build on this one.
     pub fn send(&mut self, event: Event) -> &mut Self {
         self.dispatcher.handle(&self.root, &event);
         self.settle()
@@ -107,7 +126,8 @@ impl<C: Component + 'static> Harness<C> {
         self
     }
 
-    /// Type `text`, one character key per `char`.
+    /// Type `text`: one `KeyCode::Char` press per `char`, without modifiers.
+    /// Use [`key`](Self::key) for Enter and other named keys.
     pub fn type_text(&mut self, text: &str) -> &mut Self {
         for c in text.chars() {
             let code = crossterm::event::KeyCode::Char(c);

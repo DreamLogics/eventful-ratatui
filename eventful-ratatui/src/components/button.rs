@@ -58,7 +58,25 @@ handle! {
     /// under the pointer.
     ///
     /// A press followed by a release inside the button clicks it; releasing
-    /// outside cancels, as in desktop toolkits.
+    /// outside cancels, as in desktop toolkits. A disabled button draws
+    /// dimmed, ignores input and is skipped by Tab.
+    ///
+    /// It draws at its [preferred size](crate::Component::preferred_size),
+    /// the label plus two cells of padding on either side, in the top left
+    /// of the area it is given. Connect
+    /// [`clicked`](super::ButtonEventsSignalsExt::clicked) to react; see the
+    /// [module docs](super) for connecting signals.
+    ///
+    /// ```
+    /// use eventful_ratatui::{components::Button, testing::Harness};
+    ///
+    /// let save = Button::new("Save").primary();
+    /// let mut ui = Harness::new(save.clone(), 10, 1);
+    /// assert_eq!(ui.lines(), ["  Save"]);
+    ///
+    /// ui.key("tab");
+    /// assert!(save.is_focused());
+    /// ```
     Button(State), events = (ButtonEventsEventSet, ButtonEventsSignalsExt)
 }
 
@@ -74,7 +92,8 @@ pub struct State {
 }
 
 impl Button {
-    /// A button labelled `label`.
+    /// An enabled, one-row [`Secondary`](ButtonKind::Secondary) button
+    /// labelled `label`.
     pub fn new(label: impl Into<String>) -> Self {
         Self(Rc::new(State {
             label: RefCell::new(label.into()),
@@ -95,22 +114,22 @@ impl Button {
         self.set_kind(ButtonKind::Destructive);
         self
     }
-    /// Draw no fill until focused or hovered.
+    /// Draw no fill until focused or hovered: see [`ButtonKind::Ghost`].
     pub fn ghost(self) -> Self {
         self.set_kind(ButtonKind::Ghost);
         self
     }
-    /// Make it three rows tall.
+    /// Make it three rows tall: see [`ButtonSize::Large`].
     pub fn large(self) -> Self {
         self.0.size.set(ButtonSize::Large);
         self
     }
-    /// Change the height.
+    /// Change the height and redraw.
     pub fn set_size(&self, size: ButtonSize) {
         self.0.size.set(size);
         invalidate::invalidate();
     }
-    /// Change the emphasis.
+    /// Change the emphasis and redraw.
     pub fn set_kind(&self, kind: ButtonKind) {
         self.0.kind.set(kind);
         invalidate::invalidate();
@@ -119,21 +138,24 @@ impl Button {
     pub fn label(&self) -> String {
         self.0.label.borrow().clone()
     }
-    /// Change the label.
+    /// Change the label and redraw; the preferred width follows it.
     pub fn set_label(&self, label: impl Into<String>) {
         *self.0.label.borrow_mut() = label.into();
         invalidate::invalidate();
     }
-    /// Whether it can be clicked and focused.
+    /// Whether it can be clicked and focused. Buttons start enabled.
     pub fn is_enabled(&self) -> bool {
         self.0.enabled.get()
     }
-    /// Enable or disable it.
+    /// Enable or disable it. A disabled button draws dimmed and ignores
+    /// input, and Tab skips it.
     pub fn set_enabled(&self, enabled: bool) {
         self.0.enabled.set(enabled);
         invalidate::invalidate();
     }
-    /// Click it, as the user would.
+    /// Click it, as the user would: emits
+    /// [`clicked`](super::ButtonEventsSignalsExt::clicked) unless it is
+    /// disabled.
     pub fn click(&self) {
         self.0.click();
     }

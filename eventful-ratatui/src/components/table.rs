@@ -21,7 +21,11 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// A table column: its header, width and alignment.
+/// A [`Table`] column: its header, width and alignment.
+///
+/// Widths are ratatui layout constraints, solved across the table's width
+/// like a horizontal [`Layout`]: `Constraint::Length(6)` for a fixed column,
+/// `Constraint::Fill(1)` to share the rest.
 #[derive(Clone, Debug)]
 pub struct Column {
     title: String,
@@ -38,12 +42,12 @@ impl Column {
             alignment: Alignment::Left,
         }
     }
-    /// Align the cells to the right, for numbers.
+    /// Align the cells and header to the right, for numbers.
     pub fn right(mut self) -> Self {
         self.alignment = Alignment::Right;
         self
     }
-    /// Center the cells.
+    /// Center the cells and header.
     pub fn center(mut self) -> Self {
         self.alignment = Alignment::Center;
         self
@@ -54,13 +58,47 @@ handle! {
     /// Rows of cells under column headers, with a selected row and optional
     /// sorting.
     ///
-    /// Keys work as in [`List`](super::List). A click selects a row, a
-    /// double click activates it, and with [`sortable`](Self::sortable) a
+    /// Up/Down, PageUp/PageDown and Home/End move the selection as in
+    /// [`List`](super::List), and Enter activates the selected row; there is
+    /// no type-ahead search or multi-select. A click selects a row, a double
+    /// click activates it, the wheel scrolls, and with [`sortable`](Self::sortable) a
     /// click on a header sorts by that column (again to reverse). Sorting
     /// compares numbers inside the text numerically. Events report indices
     /// into the rows as added, whatever the sort order:
     /// [`selected`](super::SelectEventsSignalsExt::selected) and
     /// [`activated`](super::SelectEventsSignalsExt::activated).
+    ///
+    /// The header takes the first row and stays in place while the rows
+    /// scroll. A row with fewer cells than columns leaves the rest empty.
+    ///
+    /// ```
+    /// use eventful_ratatui::{components::{Column, Table}, prelude::*, testing::Harness};
+    ///
+    /// let people = Table::new([
+    ///     Column::new("Name", Constraint::Fill(1)),
+    ///     Column::new("Age", Constraint::Length(4)).right(),
+    /// ])
+    /// .sortable()
+    /// .row(["Ada", "36"])
+    /// .row(["Grace", "85"])
+    /// .row(["Alan", "9"]);
+    /// let mut ui = Harness::new(people.clone(), 16, 4);
+    /// assert_eq!(ui.lines(), [
+    ///     " Name        Age",
+    ///     " Ada          36",
+    ///     " Grace        85",
+    ///     " Alan          9",
+    /// ]);
+    ///
+    /// // Click the "Age" header: numbers sort as numbers, not as text.
+    /// ui.click(12, 0);
+    /// assert_eq!(people.sorting(), Some((1, true)));
+    /// assert_eq!(people.display_order(), [2, 0, 1]);
+    /// // Indices stay those of the rows as added.
+    /// ui.click(2, 1);
+    /// assert_eq!(people.selection(), Some(2));
+    /// assert_eq!(people.row_cells(2).unwrap(), ["Alan", "9"]);
+    /// ```
     Table(State), events = (SelectEventsEventSet, SelectEventsSignalsExt)
 }
 
@@ -84,7 +122,8 @@ pub struct State {
 }
 
 impl Table {
-    /// An empty table with `columns`.
+    /// An empty, unsorted table with `columns`. The columns are fixed; add
+    /// rows with [`row`](Self::row) or [`push`](Self::push).
     pub fn new(columns: impl IntoIterator<Item = Column>) -> Self {
         Self(Rc::new(State {
             columns: columns.into_iter().collect(),
@@ -101,17 +140,21 @@ impl Table {
             events: SelectEventsEmissions::default(),
         }))
     }
-    /// Let header clicks sort.
+    /// Let header clicks sort: a click sorts ascending by that column, and
+    /// another click on the same header reverses it. The sorted header shows
+    /// an arrow. Without this, [`sort_by`](Self::sort_by) still works.
     pub fn sortable(self) -> Self {
         self.0.sortable.set(true);
         self
     }
-    /// Add a row of cells.
+    /// Add a row of cells, one per column in order; extra cells are not
+    /// shown.
     pub fn row<I: IntoIterator<Item = C>, C: Into<Line<'static>>>(self, cells: I) -> Self {
         self.push(cells);
         self
     }
-    /// Append a row of cells to a table in use.
+    /// Append a row of cells to a table in use. It takes its place in the
+    /// current sort order; the selection stays on the same row.
     pub fn push<I: IntoIterator<Item = C>, C: Into<Line<'static>>>(&self, cells: I) {
         self.0
             .rows
@@ -119,7 +162,7 @@ impl Table {
             .push(cells.into_iter().map(Into::into).collect());
         self.0.resort();
     }
-    /// Replace all rows; the selection is cleared.
+    /// Replace all rows; the selection is cleared and the sort order kept.
     pub fn set_rows<R, I, C>(&self, rows: R)
     where
         R: IntoIterator<Item = I>,
@@ -133,12 +176,15 @@ impl Table {
         self.0.selected.set(None);
         self.0.resort();
     }
-    /// Sort by `column`, ascending or not.
+    /// Sort by `column` (from zero), ascending or not, without emitting an
+    /// event. Text is compared with runs of digits as numbers, so "item 9"
+    /// comes before "item 10". The sort is stable, and rows missing the cell
+    /// sort as empty.
     pub fn sort_by(&self, column: usize, ascending: bool) {
         self.0.sort.set(Some((column, ascending)));
         self.0.resort();
     }
-    /// The sort column and direction, if sorted.
+    /// The sort column and whether it is ascending, if sorted.
     pub fn sorting(&self) -> Option<(usize, bool)> {
         self.0.sort.get()
     }
@@ -150,7 +196,8 @@ impl Table {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
-    /// The cells of row `index`, as added.
+    /// The plain text of the cells of row `index`, as added, or `None` if out
+    /// of range.
     pub fn row_cells(&self, index: usize) -> Option<Vec<String>> {
         self.0
             .rows
@@ -158,17 +205,20 @@ impl Table {
             .get(index)
             .map(|r| r.iter().map(ToString::to_string).collect())
     }
-    /// The selected row, as added.
+    /// The selected row, as an index into the rows as added, not the display
+    /// position.
     pub fn selection(&self) -> Option<usize> {
         self.0.selected.get()
     }
-    /// Select a row (index as added), without emitting `selected`.
+    /// Select a row (index as added) and scroll it into view, without
+    /// emitting `selected`. `None`, or an index out of range, clears the
+    /// selection.
     pub fn set_selection(&self, index: Option<usize>) {
         self.0.selected.set(index.filter(|&i| i < self.len()));
         self.0.reveal.set(true);
         invalidate::invalidate();
     }
-    /// Row indices in display order.
+    /// Row indices (as added) in display order: the identity until sorted.
     pub fn display_order(&self) -> Vec<usize> {
         self.0.order.borrow().clone()
     }

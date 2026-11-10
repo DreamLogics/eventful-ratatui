@@ -26,14 +26,20 @@ use std::{
 handle! {
     /// A row of menus along the top: ` File  Edit  View `.
     ///
-    /// Left/Right move between titles; Enter, Space, Down or a click opens
-    /// one; inside an open menu Left/Right switch to the neighbouring menu.
-    /// Picking an item emits [`triggered`](super::ActionEventsSignalsExt::triggered)
-    /// with its id. Build it with [`menu`](Self::menu), then
-    /// [`item`](Self::item)s for that menu:
+    /// The bar takes focus as one Tab stop. Left/Right move between titles;
+    /// Enter, Space, Down or a click opens one; inside an open menu
+    /// Left/Right switch to the neighbouring menu, and Esc closes it with
+    /// focus back on the bar. Picking an item closes the menu and emits
+    /// [`triggered`](super::ActionEventsSignalsExt::triggered) with its id.
+    /// Hints are only shown; bind the shortcuts themselves with a
+    /// [`keymap`](crate::keymap).
+    ///
+    /// Build it with [`menu`](Self::menu), then [`item`](Self::item)s for
+    /// that menu. Give the bar one row; open menus are overlays drawn below
+    /// it.
     ///
     /// ```
-    /// use eventful_ratatui::prelude::*;
+    /// use eventful_ratatui::{prelude::*, testing::Harness};
     ///
     /// let bar = MenuBar::new()
     ///     .menu("File")
@@ -43,6 +49,14 @@ handle! {
     ///     .item("quit", "Quit", "ctrl+q")
     ///     .menu("Help")
     ///     .item("about", "About", "");
+    /// let mut ui = Harness::new(Stack::vertical().fit(bar.clone()), 30, 8);
+    /// assert_eq!(ui.lines()[0], " File  Help");
+    ///
+    /// ui.key("tab").key("enter");
+    /// assert!(bar.is_open());
+    /// assert!(ui.text().contains("Open…"));
+    /// ui.key("esc");
+    /// assert!(!bar.is_open() && bar.is_focused());
     /// ```
     MenuBar(State), events = (ActionEventsEventSet, ActionEventsSignalsExt)
 }
@@ -72,12 +86,16 @@ impl MenuBar {
             me: me.clone(),
         }))
     }
-    /// Start a menu titled `title`; following items go into it.
+    /// Start a menu titled `title`, after the others; the
+    /// [`item`](Self::item)s and [`separator`](Self::separator)s that follow
+    /// go into it.
     pub fn menu(self, title: impl Into<String>) -> Self {
         self.0.menus.borrow_mut().push((title.into(), Vec::new()));
         self
     }
-    /// Add an item to the last menu; `hint` may be empty.
+    /// Add an item to the last menu. Picking it emits
+    /// [`triggered`](super::ActionEventsSignalsExt::triggered) with `id`.
+    /// `hint` is right-aligned text like its shortcut, and may be empty.
     ///
     /// # Panics
     /// Panics if no menu was started.
@@ -92,7 +110,10 @@ impl MenuBar {
         self.last_menu(|entries| entries.push((Some(id.into()), row)));
         self
     }
-    /// Add a separator to the last menu.
+    /// Add a separator line to the last menu.
+    ///
+    /// # Panics
+    /// Panics if no menu was started.
     pub fn separator(self) -> Self {
         self.last_menu(|entries| entries.push((None, Row::separator())));
         self
@@ -102,7 +123,8 @@ impl MenuBar {
         let (_, entries) = menus.last_mut().expect("start a menu with `menu` first");
         f(entries);
     }
-    /// Enable or disable the item with `id`.
+    /// Enable or disable every item with `id`. Disabled items are shown
+    /// dimmed and cannot be picked. Unknown ids are ignored.
     pub fn set_enabled(&self, id: &str, enabled: bool) {
         for (_, entries) in self.0.menus.borrow_mut().iter_mut() {
             for (item, row) in entries.iter_mut() {
@@ -112,7 +134,7 @@ impl MenuBar {
             }
         }
     }
-    /// Whether a menu is open.
+    /// Whether one of its menus is open.
     pub fn is_open(&self) -> bool {
         self.0
             .open

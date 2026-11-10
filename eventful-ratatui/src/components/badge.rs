@@ -25,6 +25,21 @@ use std::{
 handle! {
     /// A small status pill: `3`, `NEW`, `failed`, tinted by its
     /// [`Tone`]. Not interactive.
+    ///
+    /// By default the text is drawn in the tone's color on a faint tint of
+    /// it; [`solid`](Self::solid) fills the pill with the tone instead.
+    ///
+    /// ```
+    /// use eventful_ratatui::{components::{Badge, Tone}, testing::Harness};
+    ///
+    /// let status = Badge::new("passing").tone(Tone::Success).solid();
+    /// let mut ui = Harness::new(status.clone(), 12, 1);
+    /// assert_eq!(ui.lines(), ["▐ passing ▌"]);
+    ///
+    /// status.set_text("failed");
+    /// ui.render();
+    /// assert_eq!(ui.lines(), ["▐ failed ▌"]);
+    /// ```
     Badge(BadgeState)
 }
 
@@ -36,7 +51,7 @@ pub struct BadgeState {
 }
 
 impl Badge {
-    /// A badge in the primary tone.
+    /// A tinted badge showing `text`, in the [`Primary`](Tone::Primary) tone.
     pub fn new(text: impl Into<String>) -> Self {
         Self(Rc::new(BadgeState {
             text: RefCell::new(text.into()),
@@ -44,7 +59,7 @@ impl Badge {
             solid: Cell::new(false),
         }))
     }
-    /// Color it by meaning.
+    /// Color it by meaning: success, warning, error and so on.
     pub fn tone(self, tone: Tone) -> Self {
         self.0.tone.set(tone);
         self
@@ -54,7 +69,7 @@ impl Badge {
         self.0.solid.set(true);
         self
     }
-    /// Change the text.
+    /// Change the text and redraw; the preferred width follows it.
     pub fn set_text(&self, text: impl Into<String>) {
         *self.0.text.borrow_mut() = text.into();
         invalidate::invalidate();
@@ -84,9 +99,24 @@ impl Component for BadgeState {
 
 handle! {
     /// A toggleable filter chip: a pill, filled with the primary color while
-    /// selected. Space,
-    /// Enter or a click toggles it. Emits
+    /// selected. Space, Enter or a click toggles it. Emits
     /// [`toggled`](super::ToggleEventsSignalsExt::toggled).
+    ///
+    /// Unlike a [`Button`](super::Button), a chip toggles as soon as the
+    /// mouse button goes down.
+    ///
+    /// ```
+    /// use eventful_ratatui::{components::Chip, testing::Harness};
+    ///
+    /// let open = Chip::new("Open");
+    /// let mut ui = Harness::new(open.clone(), 10, 1);
+    /// assert_eq!(ui.lines(), ["▐ Open ▌"]);
+    ///
+    /// ui.click(2, 0);
+    /// assert!(open.is_selected());
+    /// ui.key("space");
+    /// assert!(!open.is_selected(), "the click focused it");
+    /// ```
     Chip(ChipState), events = (ToggleEventsEventSet, ToggleEventsSignalsExt)
 }
 
@@ -98,7 +128,7 @@ pub struct ChipState {
 }
 
 impl Chip {
-    /// An unselected chip.
+    /// An unselected chip labelled `label`.
     pub fn new(label: impl Into<String>) -> Self {
         Self(Rc::new(ChipState {
             label: RefCell::new(label.into()),
@@ -106,7 +136,7 @@ impl Chip {
             events: ToggleEventsEmissions::default(),
         }))
     }
-    /// Start selected or not.
+    /// Start selected (`true`) or not; chips start unselected.
     pub fn selected(self, on: bool) -> Self {
         self.0.on.set(on);
         self
@@ -156,6 +186,25 @@ handle! {
     /// last can be clicked, or reached with Left/Right and Enter while
     /// focused. Emits [`triggered`](super::ActionEventsSignalsExt::triggered)
     /// with the item's id.
+    ///
+    /// The last item is the current place: drawn as a title and never
+    /// triggered. A breadcrumb with fewer than two items cannot take focus.
+    /// Separators come from the theme's
+    /// [symbols](crate::theme::Theme::symbols).
+    ///
+    /// ```
+    /// use eventful_ratatui::{components::Breadcrumb, testing::Harness};
+    ///
+    /// let path = Breadcrumb::new()
+    ///     .item("home", "Home")
+    ///     .item("projects", "Projects")
+    ///     .item("eventful", "eventful");
+    /// let mut ui = Harness::new(path.clone(), 30, 1);
+    /// assert_eq!(ui.lines(), ["Home › Projects › eventful"]);
+    ///
+    /// ui.key("tab");
+    /// assert!(path.is_focused());
+    /// ```
     Breadcrumb(CrumbState), events = (ActionEventsEventSet, ActionEventsSignalsExt)
 }
 
@@ -170,7 +219,7 @@ pub struct CrumbState {
 }
 
 impl Breadcrumb {
-    /// An empty path.
+    /// An empty path; see also [`Default`].
     pub fn new() -> Self {
         Self(Rc::new(CrumbState {
             items: RefCell::default(),
@@ -179,12 +228,12 @@ impl Breadcrumb {
             events: ActionEventsEmissions::default(),
         }))
     }
-    /// Append an item; `id` is what `triggered` reports.
+    /// Append an item showing `label`; `id` is what `triggered` reports.
     pub fn item(self, id: impl Into<String>, label: impl Into<String>) -> Self {
         self.0.items.borrow_mut().push((id.into(), label.into()));
         self
     }
-    /// Replace the items.
+    /// Replace the items, as `(id, label)` pairs, and redraw.
     pub fn set_items(&self, items: impl IntoIterator<Item = (String, String)>) {
         *self.0.items.borrow_mut() = items.into_iter().collect();
         self.0.highlight.set(None);
