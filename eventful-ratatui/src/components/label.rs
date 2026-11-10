@@ -72,9 +72,9 @@ impl State {
     fn paragraph(&self) -> Paragraph<'static> {
         let theme = theme::current();
         let style = self.style.get().unwrap_or(if self.muted.get() {
-            theme.muted
+            theme.muted()
         } else {
-            theme.text
+            theme.text()
         });
         let mut paragraph = Paragraph::new(self.text.borrow().clone())
             .style(style)

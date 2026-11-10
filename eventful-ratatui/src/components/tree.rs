@@ -1,6 +1,9 @@
 //! [`Tree`].
 use super::{TreeEventsEmissions, TreeEventsEventSet, TreeEventsSignalsExt, handle};
-use crate::{Component, Handled, focus, invalidate, mouse, theme};
+use crate::{
+    Component, Handled, invalidate, mouse,
+    theme::{self, Interaction},
+};
 use crossterm::event::{Event, KeyCode, KeyModifiers};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Widget;
@@ -256,6 +259,9 @@ impl State {
 /// Columns of indentation per level.
 const INDENT: usize = 2;
 
+/// Cells of the row marker before the indentation.
+const MARKER: u16 = 1;
+
 impl Component for State {
     fn render(&self, area: Rect, buf: &mut Buffer) {
         let theme = theme::current();
@@ -277,7 +283,10 @@ impl Component for State {
             }
         }
         self.offset.set(offset);
-        let focused = focus::is_focused(self);
+        // Large wells lift on focus only; rows show the hover.
+        let well = Interaction::of(self).hovered(false);
+        buf.set_style(area, theme.well(well));
+        let hovered = super::hovered_row(self, area).map(|row| offset + usize::from(row));
         let roots = self.roots.borrow();
         for (y, row) in rows.iter().skip(offset).take(height).enumerate() {
             let rect = Rect::new(area.x, area.y + y as u16, area.width, 1);
@@ -286,11 +295,7 @@ impl Component for State {
                 node = &node.children[i];
             }
             let is_selected = selected.as_deref() == Some(row.id.as_str());
-            let style = match (is_selected, focused) {
-                (true, true) => theme.selected,
-                (true, false) => theme.selected_unfocused,
-                _ => theme.text,
-            };
+            let style = super::row_style(&theme, well, is_selected, hovered == Some(offset + y));
             buf.set_style(rect, style);
             let symbol = if row.branch {
                 theme.symbols.disclosure[usize::from(row.expanded)]
@@ -298,11 +303,9 @@ impl Component for State {
                 " "
             };
             let mut line = Line::from(vec![
+                super::row_marker(&theme, is_selected && well.focused),
                 Span::raw(" ".repeat(row.depth * INDENT)),
-                Span::styled(
-                    format!("{symbol} "),
-                    if is_selected { style } else { theme.accent },
-                ),
+                Span::styled(format!("{symbol} "), theme.muted()),
             ])
             .style(style);
             line.spans.extend(node.label.spans.iter().cloned());
@@ -333,7 +336,7 @@ impl Component for State {
             else {
                 return Handled::Yes;
             };
-            let arrow = area.x + (row.depth * INDENT) as u16;
+            let arrow = area.x + MARKER + (row.depth * INDENT) as u16;
             if row.branch && position.x <= arrow + 1 {
                 self.toggle(&row, !row.expanded);
                 return Handled::Yes;
@@ -369,7 +372,7 @@ impl Component for State {
                 for &i in &row.path[1..] {
                     node = &node.children[i];
                 }
-                row.depth * INDENT + 2 + node.label.width()
+                row.depth * INDENT + 2 + usize::from(MARKER) + node.label.width()
             })
             .max()
             .unwrap_or(0) as u16;

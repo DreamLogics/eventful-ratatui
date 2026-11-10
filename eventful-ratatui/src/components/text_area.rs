@@ -1,6 +1,9 @@
 //! [`TextArea`].
 use super::{TextEventsEmissions, TextEventsEventSet, TextEventsSignalsExt, handle};
-use crate::{Component, Handled, cursor, focus, invalidate, mouse, theme};
+use crate::{
+    Component, Handled, cursor, focus, invalidate, mouse,
+    theme::{self, Interaction},
+};
 use crossterm::event::{Event, KeyCode, KeyModifiers, MouseButton, MouseEventKind};
 use ratatui::{
     style::Style,
@@ -427,8 +430,8 @@ impl State {
             }
             KeyCode::Up => self.move_to(self.vertical(-1), shift, true),
             KeyCode::Down => self.move_to(self.vertical(1), shift, true),
-            KeyCode::PageUp => self.move_to(self.vertical(-page), shift, true),
-            KeyCode::PageDown => self.move_to(self.vertical(page), shift, true),
+            KeyCode::PageUp if !ctrl => self.move_to(self.vertical(-page), shift, true),
+            KeyCode::PageDown if !ctrl => self.move_to(self.vertical(page), shift, true),
             KeyCode::Home if ctrl => self.move_to((0, 0), shift, false),
             KeyCode::End if ctrl => self.move_to(last, shift, false),
             KeyCode::Home => self.move_to((at.0, 0), shift, false),
@@ -461,6 +464,9 @@ impl State {
 impl Component for State {
     fn render(&self, area: Rect, buf: &mut Buffer) {
         let theme = theme::current();
+        let state = Interaction::of(self).hovered(false);
+        buf.set_style(area, theme.well(state));
+        let area = super::pad(area);
         let height = usize::from(area.height);
         self.height.set(height);
         let gutter = self.gutter();
@@ -491,7 +497,7 @@ impl Component for State {
 
         if lines.len() == 1 && lines[0].is_empty() {
             let text = Rect::new(area.x + gutter, area.y, area.width - gutter, 1);
-            Span::styled(self.placeholder.borrow().as_str(), theme.placeholder).render(text, buf);
+            Span::styled(self.placeholder.borrow().as_str(), theme.placeholder()).render(text, buf);
         }
         let selection = self.selection().filter(|_| focused);
         for (y, index) in (top..lines.len().min(top + height)).enumerate() {
@@ -499,9 +505,9 @@ impl Component for State {
             if gutter > 0 {
                 let number = format!("{:>w$} ", index + 1, w = usize::from(gutter - 1));
                 let style = if index == row {
-                    theme.accent
+                    theme.accent()
                 } else {
-                    theme.muted
+                    theme.muted()
                 };
                 Span::styled(number, style).render(Rect::new(area.x, y, gutter, 1), buf);
             }
@@ -517,9 +523,9 @@ impl Component for State {
                     let selected =
                         selection.is_some_and(|(s, e)| (index, i) >= s && (index, i) < e);
                     let style: Style = if selected {
-                        theme.input.patch(theme.text_selection)
+                        theme.text().patch(theme.selection())
                     } else {
-                        theme.input
+                        theme.text()
                     };
                     spans.push(Span::styled(g.to_owned(), style));
                 }
@@ -556,7 +562,7 @@ impl Component for State {
                 invalidate::invalidate();
                 return Handled::Yes;
             }
-            let area = mouse::area_of(self).unwrap_or_default();
+            let area = super::pad(mouse::area_of(self).unwrap_or_default());
             let at = self.position_at(area, m.column, m.row);
             match m.kind {
                 MouseEventKind::Down(MouseButton::Left) => self.move_to(at, false, false),

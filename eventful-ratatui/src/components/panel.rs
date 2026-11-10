@@ -72,21 +72,17 @@ impl State {
         let theme = theme::current();
         let mut block = Block::bordered()
             .border_type(theme.border_type)
-            .border_style(if active {
-                theme.border_focused
-            } else {
-                theme.border
-            })
+            .border_style(theme.border(active))
             .padding(self.padding.get());
         let title = self.title.borrow();
         if !title.is_empty() {
-            block = block.title(format!(" {title} ")).title_style(theme.title);
+            block = block.title(format!(" {title} ")).title_style(theme.title());
         }
         let footer = self.footer.borrow();
         if !footer.is_empty() {
             block = block.title_bottom(ratatui::text::Line::styled(
                 format!(" {footer} "),
-                theme.muted,
+                theme.muted(),
             ));
         }
         block

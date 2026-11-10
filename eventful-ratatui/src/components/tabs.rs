@@ -1,12 +1,10 @@
 //! [`Tabs`].
 use super::{SelectEventsEmissions, SelectEventsEventSet, SelectEventsSignalsExt, handle};
-use crate::{Component, Handled, focus, invalidate, theme};
-use crossterm::event::{Event, KeyCode, KeyModifiers};
-use ratatui::{
-    style::Modifier,
-    text::{Line, Span},
-    widgets::Widget,
+use crate::{
+    Component, Handled, focus, invalidate, mouse,
+    theme::{self, Fill, Interaction},
 };
+use crossterm::event::{Event, KeyCode, KeyModifiers};
 use ratatui_core::{
     buffer::Buffer,
     layout::{Rect, Size},
@@ -17,7 +15,7 @@ use std::{
 };
 
 handle! {
-    /// Pages behind a row of tabs: ` General │ Network │ About `.
+    /// Pages behind a row of tabs, drawn as buttons: the selected one filled.
     ///
     /// The tab row takes focus: Left/Right switch pages. Ctrl+PageUp and
     /// Ctrl+PageDown switch from anywhere inside, and a click on a title
@@ -109,35 +107,40 @@ impl State {
     }
 }
 
+/// Cells on either side of a tab's title.
+const PADDING: u16 = 2;
+/// Cells between tabs.
+const GAP: u16 = 1;
+
 impl Component for State {
     fn render(&self, area: Rect, buf: &mut Buffer) {
         let theme = theme::current();
-        let focused = focus::is_focused(self);
+        let row = Interaction::of(self);
+        let pointer = mouse::hover_position(self);
         let pages = self.pages.borrow();
         let selected = self.selected.get().min(pages.len().saturating_sub(1));
         let mut titles = Vec::new();
         let mut x = area.x;
-        let mut line = Line::default();
         for (i, (title, _)) in pages.iter().enumerate() {
-            if i > 0 {
-                line.push_span(Span::styled("│", theme.border));
-                x += 1;
-            }
-            let text = format!(" {title} ");
-            let style = match (i == selected, focused) {
-                (true, true) => theme.focused,
-                (true, false) => theme.accent.add_modifier(Modifier::BOLD),
-                _ => theme.muted,
+            // Each tab is a button: the selected one filled, the rest ghosts.
+            let width = super::width(title) + 2 * PADDING;
+            let rect = Rect::new(x, area.y, width, 1.min(area.height)).intersection(area);
+            let state = Interaction {
+                focused: row.focused && i == selected,
+                hovered: pointer.is_some_and(|p| rect.contains(p)),
+                disabled: false,
             };
-            let width = super::width(&text);
-            titles.push(Rect::new(x, area.y, width, 1).intersection(area));
-            x = x.saturating_add(width);
-            line.push_span(Span::styled(text, style));
+            let style = if i == selected {
+                theme.fill(Fill::Primary, state)
+            } else if state.hovered {
+                theme.fill(Fill::Ghost, state)
+            } else {
+                theme.muted()
+            };
+            super::paint_button(buf, rect, title, style, &theme);
+            titles.push(rect);
+            x = x.saturating_add(width + GAP);
         }
-        line.render(
-            Rect::new(area.x, area.y, area.width, 1.min(area.height)),
-            buf,
-        );
         *self.titles.borrow_mut() = titles;
         let content = pages.get(selected).and_then(|(_, c)| c.clone());
         drop(pages);
@@ -206,7 +209,10 @@ impl Component for State {
                     available.height.saturating_sub(1),
                 ))
             });
-        let titles: u16 = pages.iter().map(|(t, _)| super::width(t) + 3).sum();
+        let titles: u16 = pages
+            .iter()
+            .map(|(t, _)| super::width(t) + 2 * PADDING + GAP)
+            .sum();
         Size::new(
             titles.max(content.width).min(available.width),
             content.height + 1,

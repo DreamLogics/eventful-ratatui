@@ -1,6 +1,9 @@
 //! `Choices`: the pickable rows inside menus, selects, combo boxes and the
 //! command palette. Internal.
-use crate::{Component, Handled, invalidate, mouse, theme};
+use crate::{
+    Component, Handled, invalidate, mouse,
+    theme::{self, Interaction},
+};
 use crossterm::event::{Event, KeyCode, KeyModifiers, MouseButton, MouseEventKind};
 use ratatui::{
     text::{Line, Span},
@@ -210,7 +213,7 @@ impl Component for Choices {
         let inner = if self.bordered {
             let block = Block::bordered()
                 .border_type(theme.border_type)
-                .border_style(theme.border_focused);
+                .border_style(theme.border(false));
             let inner = block.inner(area);
             block.render(area, buf);
             inner
@@ -228,27 +231,25 @@ impl Component for Choices {
             let row = &rows[index];
             let rect = Rect::new(inner.x, inner.y + y as u16, inner.width, 1);
             if row.separator {
-                Line::styled("─".repeat(usize::from(rect.width)), theme.border).render(rect, buf);
+                Line::styled("─".repeat(usize::from(rect.width)), theme.scrollbar())
+                    .render(rect, buf);
                 continue;
             }
+            let highlighted = self.highlight.get() == Some(index);
             let style = if !row.enabled {
-                theme.disabled
-            } else if self.highlight.get() == Some(index) {
-                theme.selected
+                theme.disabled()
+            } else if highlighted {
+                theme.row(Interaction::default().focused(true))
             } else {
-                theme.text
+                theme.text()
             };
             buf.set_style(rect, style);
             let mut line = Line::default().style(style);
-            line.push_span(" ");
+            line.push_span(super::row_marker(&theme, highlighted && row.enabled));
             line.spans.extend(row.label.spans.iter().cloned());
             line.render(rect, buf);
             if !row.hint.is_empty() {
-                let hint_style = if self.highlight.get() == Some(index) {
-                    style
-                } else {
-                    theme.muted
-                };
+                let hint_style = theme.muted();
                 let width = super::width(&row.hint) + 1;
                 let hint = Rect::new(
                     rect.right().saturating_sub(width),
@@ -271,8 +272,10 @@ impl Component for Choices {
         if let Event::Mouse(m) = event {
             match m.kind {
                 MouseEventKind::Moved => {
+                    // Separators and disabled rows keep the highlight.
                     if let Some(index) = self.row_at(m.row)
                         && self.highlight.get() != Some(index)
+                        && self.rows.borrow()[index].pickable()
                     {
                         self.set_highlight(Some(index));
                     }

@@ -1,8 +1,10 @@
 //! [`Button`].
 use super::{ButtonEventsEmissions, ButtonEventsEventSet, ButtonEventsSignalsExt, handle};
-use crate::{Component, Handled, invalidate, mouse, theme};
+use crate::{
+    Component, Handled, invalidate, mouse,
+    theme::{self, Fill, Interaction},
+};
 use crossterm::event::Event;
-use ratatui::{style::Modifier, text::Line, widgets::Widget};
 use ratatui_core::{
     buffer::Buffer,
     layout::{Rect, Size},
@@ -12,22 +14,48 @@ use std::{
     rc::Rc,
 };
 
-/// How a button is emphasized.
+/// How a button is emphasized, from loudest to quietest.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ButtonKind {
-    /// A plain button.
-    #[default]
-    Normal,
-    /// The main action, in the accent color.
+    /// The main action, filled with the primary color.
     Primary,
-    /// A destructive action, in the error color.
-    Danger,
+    /// An ordinary action, with a quieter fill.
+    #[default]
+    Secondary,
+    /// A destructive action, filled with the destructive color.
+    Destructive,
+    /// No fill until focused or hovered: toolbars, dense rows.
+    Ghost,
+}
+
+impl ButtonKind {
+    fn fill(self) -> Fill {
+        match self {
+            Self::Primary => Fill::Primary,
+            Self::Secondary => Fill::Secondary,
+            Self::Destructive => Fill::Destructive,
+            Self::Ghost => Fill::Ghost,
+        }
+    }
+}
+
+/// How tall a button is.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ButtonSize {
+    /// One row.
+    #[default]
+    Small,
+    /// Three rows: the label with half-block caps above and below.
+    Large,
 }
 
 handle! {
-    /// A push button: `[ Save ]`. Click it, or focus it and press Enter or
-    /// Space, to emit [`clicked`](super::ButtonEventsSignalsExt::clicked).
+    /// A push button: the label on a filled background. Click it, or focus it
+    /// and press Enter or Space, to emit
+    /// [`clicked`](super::ButtonEventsSignalsExt::clicked). It lights up
+    /// under the pointer.
     ///
     /// A press followed by a release inside the button clicks it; releasing
     /// outside cancels, as in desktop toolkits.
@@ -38,6 +66,7 @@ handle! {
 pub struct State {
     label: RefCell<String>,
     kind: Cell<ButtonKind>,
+    size: Cell<ButtonSize>,
     enabled: Cell<bool>,
     events: ButtonEventsEmissions,
     /// Runs synchronously on click, for composite components.
@@ -49,7 +78,8 @@ impl Button {
     pub fn new(label: impl Into<String>) -> Self {
         Self(Rc::new(State {
             label: RefCell::new(label.into()),
-            kind: Cell::new(ButtonKind::Normal),
+            kind: Cell::new(ButtonKind::Secondary),
+            size: Cell::new(ButtonSize::Small),
             enabled: Cell::new(true),
             events: ButtonEventsEmissions::default(),
             on_click: RefCell::default(),
@@ -61,9 +91,24 @@ impl Button {
         self
     }
     /// Emphasize it as a destructive action.
-    pub fn danger(self) -> Self {
-        self.set_kind(ButtonKind::Danger);
+    pub fn destructive(self) -> Self {
+        self.set_kind(ButtonKind::Destructive);
         self
+    }
+    /// Draw no fill until focused or hovered.
+    pub fn ghost(self) -> Self {
+        self.set_kind(ButtonKind::Ghost);
+        self
+    }
+    /// Make it three rows tall.
+    pub fn large(self) -> Self {
+        self.0.size.set(ButtonSize::Large);
+        self
+    }
+    /// Change the height.
+    pub fn set_size(&self, size: ButtonSize) {
+        self.0.size.set(size);
+        invalidate::invalidate();
     }
     /// Change the emphasis.
     pub fn set_kind(&self, kind: ButtonKind) {
@@ -113,18 +158,15 @@ impl State {
 impl Component for State {
     fn render(&self, area: Rect, buf: &mut Buffer) {
         let theme = theme::current();
-        let style = if !self.enabled.get() {
-            theme.disabled
-        } else if crate::focus::is_focused(self) {
-            theme.focused
-        } else {
-            match self.kind.get() {
-                ButtonKind::Normal => theme.text,
-                ButtonKind::Primary => theme.accent.add_modifier(Modifier::BOLD),
-                ButtonKind::Danger => theme.error,
-            }
+        let state = Interaction::of(self).disabled(!self.enabled.get());
+        let style = theme.fill(self.kind.get().fill(), state);
+        let size = self.preferred_size(area.as_size());
+        let area = Rect {
+            width: size.width.min(area.width),
+            height: size.height.min(area.height),
+            ..area
         };
-        Line::styled(format!("[ {} ]", self.label.borrow()), style).render(area, buf);
+        super::paint_button(buf, area, &self.label.borrow(), style, &theme);
     }
     fn on_input(&self, event: &Event) -> Handled {
         if !self.enabled.get() {
@@ -149,6 +191,10 @@ impl Component for State {
         self.enabled.get()
     }
     fn preferred_size(&self, _: Size) -> Size {
-        Size::new(super::width(&self.label.borrow()) + 4, 1)
+        let height = match self.size.get() {
+            ButtonSize::Small => 1,
+            ButtonSize::Large => 3,
+        };
+        Size::new(super::width(&self.label.borrow()) + 4, height)
     }
 }

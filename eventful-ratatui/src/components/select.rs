@@ -5,9 +5,9 @@ use super::{
     handle,
 };
 use crate::{
-    Component, Handled, focus, invalidate, mouse,
+    Component, Handled, invalidate, mouse,
     overlay::{Overlay, Placement, overlay},
-    theme,
+    theme::{self, Interaction},
 };
 use crossterm::event::{Event, KeyCode, KeyModifiers};
 use ratatui::{text::Span, widgets::Widget};
@@ -163,14 +163,8 @@ impl State {
 impl Component for State {
     fn render(&self, area: Rect, buf: &mut Buffer) {
         let theme = theme::current();
-        let focused = focus::is_focused(self);
-        let style = if !self.enabled.get() {
-            theme.disabled
-        } else if focused {
-            theme.focused
-        } else {
-            theme.text
-        };
+        let state = Interaction::of(self).disabled(!self.enabled.get());
+        let style = theme.well(state);
         let row = Rect::new(area.x, area.y, area.width, 1.min(area.height));
         buf.set_style(row, style);
         let (text, text_style) = match self
@@ -181,7 +175,7 @@ impl Component for State {
             Some(value) => (value, style),
             None => (
                 self.placeholder.borrow().clone(),
-                if focused { style } else { theme.placeholder },
+                style.patch(theme.placeholder()),
             ),
         };
         Span::styled(format!(" {text}"), text_style).render(row, buf);
@@ -191,7 +185,12 @@ impl Component for State {
             2.min(row.width),
             row.height,
         );
-        Span::styled("▾", if focused { style } else { theme.muted }).render(arrow, buf);
+        let chevron = if state.is_active() {
+            theme.text()
+        } else {
+            theme.muted()
+        };
+        Span::styled("▾", chevron).render(arrow, buf);
     }
     fn on_input(&self, event: &Event) -> Handled {
         self.input(event)

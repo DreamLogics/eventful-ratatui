@@ -86,8 +86,9 @@ impl Component for App {
         .areas(area);
         self.log_panel.render(log, buf);
         self.input_panel.render(input, buf);
+        let width = self.hints.preferred_size(status.as_size()).width;
         let [status, hints] =
-            Layout::horizontal([Constraint::Fill(1), Constraint::Length(20)]).areas(status);
+            Layout::horizontal([Constraint::Fill(1), Constraint::Length(width)]).areas(status);
         self.status.render(status, buf);
         self.hints.render(hints, buf);
     }

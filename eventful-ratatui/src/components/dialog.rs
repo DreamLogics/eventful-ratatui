@@ -30,7 +30,7 @@ use std::{cell::Cell, fmt, rc::Rc};
 /// let choice = Dialog::new("Unsaved changes")
 ///     .message("Save the document before closing?")
 ///     .button("Cancel")
-///     .danger_button("Discard")
+///     .destructive_button("Discard")
 ///     .primary_button("Save")
 ///     .show()
 ///     .await;
@@ -84,8 +84,8 @@ impl Dialog {
         self.add(Button::new(label).primary(), true)
     }
     /// Add a button for a destructive action.
-    pub fn danger_button(self, label: impl Into<String>) -> Self {
-        self.add(Button::new(label).danger(), false)
+    pub fn destructive_button(self, label: impl Into<String>) -> Self {
+        self.add(Button::new(label).destructive(), false)
     }
     /// The widest the dialog gets, in cells; 50 by default.
     pub fn max_width(mut self, width: u16) -> Self {
@@ -126,7 +126,7 @@ impl Dialog {
             .map(|i| self.buttons[i].clone());
         let view = View {
             title: self.title,
-            message: self.message.map(|m| Label::new(m).wrap()),
+            message: self.message.map(|m| Label::new(m).wrap().muted()),
             content: self.content,
             buttons: self.buttons,
             default: self.default,
@@ -154,6 +154,9 @@ impl fmt::Debug for Dialog {
     }
 }
 
+/// Cells between buttons.
+const BUTTON_GAP: u16 = 1;
+
 /// The dialog on screen.
 struct View {
     title: String,
@@ -169,18 +172,18 @@ impl View {
         let theme = theme::current();
         Block::bordered()
             .border_type(theme.border_type)
-            .border_style(theme.border_focused)
+            .border_style(theme.border(true))
             .title(format!(" {} ", self.title))
-            .title_style(theme.title)
+            .title_style(theme.title())
             .padding(Padding::new(2, 2, 1, 0))
     }
     fn buttons_width(&self) -> u16 {
         let widths: u16 = self
             .buttons
             .iter()
-            .map(|b| b.preferred_size(Size::new(u16::MAX, 1)).width + 2)
+            .map(|b| b.preferred_size(Size::new(u16::MAX, 1)).width + BUTTON_GAP)
             .sum();
-        widths.saturating_sub(2)
+        widths.saturating_sub(BUTTON_GAP)
     }
     /// The heights of the message and content for an inner `width`.
     fn heights(&self, width: u16) -> (u16, u16) {
@@ -224,7 +227,7 @@ impl Component for View {
         for button in &self.buttons {
             let width = button.preferred_size(Size::new(u16::MAX, 1)).width;
             button.render(Rect::new(x, row, width, 1).intersection(area), buf);
-            x += width + 2;
+            x += width + BUTTON_GAP;
         }
     }
 

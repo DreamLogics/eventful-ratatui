@@ -225,26 +225,26 @@ impl Component for View {
         let theme = theme::current();
         let block = Block::bordered()
             .border_type(theme.border_type)
-            .border_style(theme.border_focused);
+            .border_style(theme.border(true));
         let inner = block.inner(area);
         block.render(area, buf);
         if inner.height == 0 {
             return;
         }
         let prompt = Rect::new(inner.x, inner.y, 2.min(inner.width), 1);
-        Span::styled("›", theme.accent).render(prompt, buf);
+        Span::styled("›", theme.accent()).render(prompt, buf);
         self.input.render(
             Rect::new(inner.x + 2, inner.y, inner.width.saturating_sub(2), 1),
             buf,
         );
         if inner.height > 1 {
             let rule = Rect::new(inner.x, inner.y + 1, inner.width, 1);
-            Line::styled("─".repeat(usize::from(inner.width)), theme.border).render(rule, buf);
+            Line::styled("─".repeat(usize::from(inner.width)), theme.scrollbar()).render(rule, buf);
         }
         if inner.height > 2 {
             let list = Rect::new(inner.x, inner.y + 2, inner.width, inner.height - 2);
             if self.choices.len() == 0 {
-                Span::styled(" No matching commands", theme.muted).render(list, buf);
+                Span::styled(" No matching commands", theme.muted()).render(list, buf);
             } else {
                 self.choices.render(list, buf);
             }

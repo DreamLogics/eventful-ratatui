@@ -1,8 +1,12 @@
 //! [`Accordion`].
 use super::handle;
-use crate::{Component, Handled, focus, invalidate, theme};
+use crate::{
+    Component, Handled, focus, invalidate, mouse,
+    theme::{self, Fill, Interaction},
+};
 use crossterm::event::{Event, KeyCode};
 use ratatui::{
+    style::Modifier,
     text::{Line, Span},
     widgets::Widget,
 };
@@ -109,6 +113,7 @@ impl Component for State {
     fn render(&self, area: Rect, buf: &mut Buffer) {
         let theme = theme::current();
         let focused = focus::is_focused(self);
+        let pointer = mouse::hover_position(self);
         let sections = self.sections.borrow();
         let open: u16 = sections.iter().filter(|s| s.open).count() as u16;
         let closed_rows = sections.len() as u16;
@@ -123,21 +128,24 @@ impl Component for State {
             }
             headers.push(y);
             let symbol = theme.symbols.disclosure[usize::from(section.open)];
-            let style = if focused && self.current.get() == i {
-                theme.focused
-            } else {
-                theme.title
+            let header = Rect::new(area.x, y, area.width, 1);
+            let state = Interaction {
+                focused: focused && self.current.get() == i,
+                hovered: pointer.is_some_and(|p| header.contains(p)),
+                disabled: false,
             };
+            let fill = theme.fill(Fill::Ghost, state);
+            buf.set_style(header, fill);
             Line::from(vec![
-                Span::styled(format!("{symbol} "), theme.accent),
-                Span::styled(section.title.as_str(), style),
+                Span::styled(format!(" {symbol} "), theme.muted()),
+                Span::styled(section.title.as_str(), fill.add_modifier(Modifier::BOLD)),
             ])
-            .render(Rect::new(area.x, y, area.width, 1), buf);
+            .render(header, buf);
             y += 1;
             if section.open {
                 let wanted = section
                     .content
-                    .preferred_size(Size::new(area.width.saturating_sub(2), spare))
+                    .preferred_size(Size::new(area.width.saturating_sub(3), spare))
                     .height;
                 let share = if open_left <= 1 {
                     spare
@@ -146,7 +154,7 @@ impl Component for State {
                 };
                 let rows = share.min(area.bottom() - y);
                 section.content.render(
-                    Rect::new(area.x + 2, y, area.width.saturating_sub(2), rows),
+                    Rect::new(area.x + 3, y, area.width.saturating_sub(3), rows),
                     buf,
                 );
                 y += rows;
@@ -199,14 +207,14 @@ impl Component for State {
         let mut height = sections.len() as u16;
         let mut width = 0;
         for section in sections.iter() {
-            width = width.max(super::width(&section.title) + 2);
+            width = width.max(super::width(&section.title) + 3);
             if section.open {
                 let size = section.content.preferred_size(Size::new(
-                    available.width.saturating_sub(2),
+                    available.width.saturating_sub(3),
                     available.height,
                 ));
                 height = height.saturating_add(size.height);
-                width = width.max(size.width + 2);
+                width = width.max(size.width + 3);
             }
         }
         Size::new(width.min(available.width), height.min(available.height))

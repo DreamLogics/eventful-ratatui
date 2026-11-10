@@ -98,6 +98,8 @@ impl Dispatcher {
         mouse: &MouseEvent,
     ) {
         let position = Position::new(mouse.column, mouse.row);
+        tree::set_pointer(position);
+        update_hover();
         let floor = overlay::mouse_floor();
         let press = matches!(mouse.kind, MouseEventKind::Down(_));
         if press {
@@ -167,7 +169,7 @@ impl Dispatcher {
             .draw(|frame| {
                 let area = frame.area();
                 let buf = frame.buffer_mut();
-                buf.set_style(area, theme::current().text);
+                buf.set_style(area, theme::current().screen());
                 root.render(area, buf);
                 overlay::render(area, buf);
                 shown = cursor::take();
@@ -179,6 +181,9 @@ impl Dispatcher {
         tree::end_frame();
         focus::end_frame();
         overlay::end_frame();
+        if self.mouse {
+            update_hover();
+        }
         Ok(shown)
     }
 }
@@ -205,6 +210,26 @@ fn layer_root(layer: u64) -> Option<Path> {
         let index = nodes.iter().position(|n| n.layer == layer)?;
         Some(tree::path(nodes, index))
     })
+}
+
+/// Recompute what is under the pointer; redraw if it changed.
+fn update_hover() {
+    let Some(position) = tree::pointer() else {
+        return;
+    };
+    let floor = overlay::mouse_floor();
+    let hovered = tree::with_last(|nodes| {
+        let mut hovered = Vec::new();
+        let mut next = tree::hit(nodes, position, |n| overlay::in_scope(n.layer, floor));
+        while let Some(index) = next {
+            hovered.push(nodes[index].target.addr());
+            next = nodes[index].parent;
+        }
+        hovered
+    });
+    if tree::set_hovered(hovered) {
+        invalidate::invalidate();
+    }
 }
 
 /// Focus the innermost focusable component under `position`.

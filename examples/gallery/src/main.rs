@@ -1,11 +1,12 @@
 //! Every component on one screen. Run with `cargo run -p gallery`.
 //!
 //! Tab moves the focus, Ctrl+PageUp/PageDown switch pages, Ctrl+P opens the
-//! command palette, the mouse works everywhere, and Ctrl+C quits. What you do
-//! is logged on the Lists page.
+//! command palette, Ctrl+T switches the theme, the mouse works everywhere, and
+//! Ctrl+C quits. What you do is logged on the Lists page.
 use eventful_ratatui::prelude::*;
+use eventful_ratatui::theme::Theme;
 use eventful_rs::*;
-use std::future::Future;
+use std::{cell::Cell, future::Future};
 
 declare_shard!(Ui, runtime = main);
 
@@ -23,6 +24,8 @@ struct Gallery {
     overlay_buttons: [Button; 6],
     menu_bar: MenuBar,
     editor: TextArea,
+    /// Index into `Theme::presets()`, once switched.
+    theme: Cell<Option<usize>>,
     keys: Keymap<Gallery>,
 }
 
@@ -71,6 +74,7 @@ impl Gallery {
         .multi_select();
         let bar = ProgressBar::new();
         bar.set_value(Some(0.3));
+        bar.set_label(Some("Uploading notes.md".into()));
         let (less, more) = (Button::new("-10%"), Button::new("+10%"));
 
         let form = Stack::vertical()
@@ -112,14 +116,24 @@ impl Gallery {
             .child(
                 Constraint::Length(1),
                 Stack::horizontal()
-                    .spacing(2)
+                    .spacing(1)
                     .fit(save.clone())
-                    .fit(Button::new("Delete").danger())
+                    .fit(Button::new("Cancel"))
+                    .fit(Button::new("Delete").destructive())
+                    .fit(Button::new("Details").ghost())
                     .fit({
                         let disabled = Button::new("Disabled");
                         disabled.set_enabled(false);
                         disabled
                     }),
+            )
+            .child(
+                Constraint::Length(3),
+                Stack::horizontal()
+                    .spacing(1)
+                    .fit(Button::new("Deploy").primary().large())
+                    .fit(Button::new("Preview").large())
+                    .fit(Button::new("Destroy").destructive().large()),
             );
         let controls = Panel::new("Controls")
             .padding(Padding::horizontal(1))
@@ -139,7 +153,7 @@ impl Gallery {
             Stack::vertical()
                 .spacing(1)
                 .fit(Spinner::new("Working…"))
-                .child(Constraint::Length(1), bar.clone())
+                .child(Constraint::Length(2), bar.clone())
                 .child(Constraint::Length(1), ProgressBar::new())
                 .fit(
                     Stack::horizontal()
@@ -253,7 +267,7 @@ impl Gallery {
                             .fit(Chip::new("tui"))
                             .fit(Chip::new("async"))
                             .fit(Badge::new("NEW"))
-                            .fit(Badge::new("3 errors").kind(ToastKind::Error)),
+                            .fit(Badge::new("3 errors").tone(Tone::Error)),
                     )
                     .child(
                         Constraint::Fill(1),
@@ -283,6 +297,7 @@ impl Gallery {
             .hint("tab", "focus")
             .hint("ctrl+pgup/pgdn", "pages")
             .hint("ctrl+p", "commands")
+            .hint("ctrl+t", "theme")
             .hint("ctrl+c", "quit");
         Self {
             tabs,
@@ -297,8 +312,10 @@ impl Gallery {
             overlay_buttons,
             menu_bar,
             editor,
+            theme: Cell::new(None),
             keys: Keymap::new()
                 .bind("ctrl+c", |_| quit())
+                .bind("ctrl+t", Gallery::next_theme)
                 .bind("ctrl+p", |g: &Gallery| g.demo(Demo::Palette)),
             events: Default::default(),
         }
@@ -383,6 +400,21 @@ impl Gallery {
             _ => {}
         }
         self.log.push(format!("menu bar: {id}"));
+    }
+
+    fn next_theme(&self) {
+        let presets = Theme::presets();
+        // Start from the theme the terminal query picked.
+        let current = self.theme.get().unwrap_or_else(|| {
+            let name = theme::current().name;
+            presets.iter().position(|t| t.name == name).unwrap_or(0)
+        });
+        let next = (current + 1) % presets.len();
+        self.theme.set(Some(next));
+        let theme = presets[next].clone();
+        self.log.push(format!("theme: {}", theme.name));
+        Toast::info(format!("Theme: {}", theme.name)).show();
+        theme::set(theme);
     }
 
     fn less(&self) {

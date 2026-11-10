@@ -83,6 +83,10 @@ struct Tree {
     viewports: Vec<Viewport>,
     /// The last completed frame.
     last: Vec<Node>,
+    /// Where the mouse pointer was last seen.
+    pointer: Option<Position>,
+    /// The components under the pointer, innermost first.
+    hovered: Vec<*const ()>,
 }
 
 thread_local! {
@@ -237,4 +241,28 @@ pub(crate) fn hit(
     nodes
         .iter()
         .rposition(|node| scope(node) && node.area.contains(position))
+}
+
+/// Remember where the pointer is.
+pub(crate) fn set_pointer(position: Position) {
+    TREE.with_borrow_mut(|tree| tree.pointer = Some(position));
+}
+
+/// Where the pointer was last seen.
+pub(crate) fn pointer() -> Option<Position> {
+    TREE.with_borrow(|tree| tree.pointer)
+}
+
+/// Replace the hovered components. Returns whether they changed.
+pub(crate) fn set_hovered(hovered: Vec<*const ()>) -> bool {
+    TREE.with_borrow_mut(|tree| {
+        let changed = tree.hovered != hovered;
+        tree.hovered = hovered;
+        changed
+    })
+}
+
+/// Whether the component at `addr` is under the pointer.
+pub(crate) fn is_hovered(addr: *const ()) -> bool {
+    TREE.with_borrow(|tree| tree.hovered.contains(&addr))
 }

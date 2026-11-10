@@ -27,7 +27,7 @@ fn confirm_defaults_to_ok_and_esc_cancels() {
     ui.render();
     let text = ui.text();
     assert!(
-        text.contains("Delete 3 files?") && text.contains("[ OK ]"),
+        text.contains("Delete 3 files?") && text.contains("Cancel     OK"),
         "{text}"
     );
     ui.key("enter");
@@ -60,9 +60,13 @@ fn dialogs_block_the_screen_below() {
     assert!(!below.is_focused());
     assert!(poll(&mut choice).is_none(), "still open");
     // Click the first button, A.
-    let row = ui.lines().iter().position(|l| l.contains("[ A ]")).unwrap() as u16;
-    let column = ui.lines()[row as usize].find("[ A ]").unwrap() as u16;
-    ui.click(column + 1, row);
+    let row = ui
+        .lines()
+        .iter()
+        .position(|l| l.contains("  A     B"))
+        .unwrap() as u16;
+    let column = ui.lines()[row as usize].find("  A  ").unwrap() as u16;
+    ui.click(column + 2, row);
     assert_eq!(poll(&mut choice), Some(Some(0)));
 }
 

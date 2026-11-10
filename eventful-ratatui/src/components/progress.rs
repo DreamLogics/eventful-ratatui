@@ -1,7 +1,11 @@
 //! [`ProgressBar`] and [`Spinner`].
 use super::handle;
-use crate::{Component, invalidate, theme};
+use crate::{
+    Component, invalidate,
+    theme::{self, Interaction},
+};
 use ratatui::{
+    style::Style,
     text::{Line, Span},
     widgets::Widget,
 };
@@ -19,8 +23,8 @@ use std::{
 const FRAME: Duration = Duration::from_millis(80);
 
 handle! {
-    /// A one-line progress bar: `━━━━━━━──────── 42%`. Without a value it is
-    /// indeterminate and animates.
+    /// A slim progress bar on a track: `█████▋      42%`, with an optional
+    /// label above it. Without a value it is indeterminate and animates.
     ProgressBar(BarState)
 }
 
@@ -49,7 +53,8 @@ impl ProgressBar {
         self.0.value.set(value.map(|v| v.clamp(0.0, 1.0)));
         invalidate::invalidate();
     }
-    /// Text shown after the bar instead of the percentage.
+    /// Text above the bar, with the percentage at its right. Given one row,
+    /// the label goes after the bar instead of the percentage.
     pub fn set_label(&self, label: Option<String>) {
         *self.0.label.borrow_mut() = label;
         invalidate::invalidate();
@@ -64,20 +69,46 @@ impl Default for ProgressBar {
 
 impl Component for BarState {
     fn render(&self, area: Rect, buf: &mut Buffer) {
+        if area.is_empty() {
+            return;
+        }
         let theme = theme::current();
         let value = self.value.get();
-        let label = match (&*self.label.borrow(), value) {
-            (Some(label), _) => format!(" {label}"),
-            (None, Some(v)) => format!(" {:>3.0}%", v * 100.0),
-            (None, None) => String::new(),
+        let percent = value.map(|v| format!("{:.0}%", v * 100.0));
+        let label = self.label.borrow().clone();
+        // The label above the bar, the percentage at its right; on one row,
+        // the percentage after the bar.
+        let bar = if let Some(label) = &label
+            && area.height >= 2
+        {
+            let row = Rect { height: 1, ..area };
+            Span::styled(label.as_str(), theme.text()).render(row, buf);
+            if let Some(percent) = &percent {
+                Line::styled(percent.as_str(), theme.muted())
+                    .alignment(ratatui::layout::Alignment::Right)
+                    .render(row, buf);
+            }
+            Rect::new(area.x, area.y + 1, area.width, 1)
+        } else {
+            let text = match (&label, &percent) {
+                (Some(label), _) => format!(" {label}"),
+                (None, Some(percent)) => format!(" {percent:>4}"),
+                (None, None) => String::new(),
+            };
+            let width = super::width(&text).min(area.width);
+            let tail = Rect::new(area.right() - width, area.y, width, 1);
+            Span::styled(text, theme.muted()).render(tail, buf);
+            Rect::new(area.x, area.y, area.width - width, 1)
         };
-        let width = area.width.saturating_sub(super::width(&label)) as usize;
+        let track = theme.well_color(Interaction::default());
+        let cells = usize::from(bar.width);
+        // In eighths of a cell, so the fill moves smoothly.
         let (start, filled) = match value {
-            Some(v) => (0, (v * width as f64).round() as usize),
+            Some(v) => (0, (v * cells as f64 * 8.0).round() as usize),
             None => {
-                // A segment a quarter of the width bouncing back and forth.
-                let segment = (width / 4).max(1);
-                let span = width.saturating_sub(segment).max(1);
+                // A quarter of the track bouncing back and forth.
+                let segment = (cells / 4).max(1);
+                let span = cells.saturating_sub(segment).max(1);
                 let step = (self.started.elapsed().as_millis() / FRAME.as_millis()) as usize;
                 let phase = step % (2 * span);
                 let start = if phase < span {
@@ -86,23 +117,30 @@ impl Component for BarState {
                     2 * span - phase
                 };
                 invalidate::after(FRAME);
-                (start, segment)
+                (start * 8, segment * 8)
             }
         };
-        let filled = filled.min(width - start.min(width));
-        let rest = width - start.min(width) - filled;
-        Line::from(vec![
-            Span::styled("─".repeat(start.min(width)), theme.muted),
-            Span::styled("━".repeat(filled), theme.accent),
-            Span::styled("─".repeat(rest), theme.muted),
-            Span::styled(label, theme.text),
-        ])
-        .render(area, buf);
+        let fill = Style::new().fg(theme.palette.primary).bg(track);
+        for i in 0..cells {
+            let cell = &mut buf[(bar.x + i as u16, bar.y)];
+            let from = i * 8;
+            // Segments start on a cell boundary, so only the end is partial.
+            let symbol = if from < start {
+                " "
+            } else {
+                LEFT[(start + filled).saturating_sub(from).min(8)]
+            };
+            cell.set_symbol(symbol).set_style(fill);
+        }
     }
     fn preferred_size(&self, available: Size) -> Size {
-        Size::new(available.width, 1)
+        let height = if self.label.borrow().is_some() { 2 } else { 1 };
+        Size::new(available.width, height.min(available.height))
     }
 }
+
+/// Eighths of a cell filled from the left.
+const LEFT: [&str; 9] = [" ", "▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"];
 
 handle! {
     /// An activity indicator: `⠋ Loading`. Animates while spinning.
@@ -149,13 +187,13 @@ impl Component for SpinnerState {
         if self.spinning.get() {
             let frames = theme.symbols.spinner;
             let step = (self.started.elapsed().as_millis() / FRAME.as_millis()) as usize;
-            line.push_span(Span::styled(frames[step % frames.len()], theme.accent));
+            line.push_span(Span::styled(frames[step % frames.len()], theme.accent()));
             if !label.is_empty() {
                 line.push_span(" ");
             }
             invalidate::after(FRAME);
         }
-        line.push_span(Span::styled(label.as_str(), theme.text));
+        line.push_span(Span::styled(label.as_str(), theme.text()));
         line.render(area, buf);
     }
     fn preferred_size(&self, _: Size) -> Size {

@@ -1,8 +1,12 @@
 //! [`Slider`] and [`SpinBox`].
 use super::{ValueEventsEmissions, ValueEventsEventSet, ValueEventsSignalsExt, handle};
-use crate::{Component, Handled, focus, invalidate, mouse, theme};
+use crate::{
+    Component, Handled, invalidate, mouse,
+    theme::{self, Interaction},
+};
 use crossterm::event::{Event, KeyCode, MouseButton, MouseEventKind};
 use ratatui::{
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::Widget,
 };
@@ -164,13 +168,20 @@ impl Component for Range {
         let ratio = (self.value.get() - self.min.get()) / span;
         let width = usize::from(track.width.max(1));
         let knob = ((width - 1) as f64 * ratio).round() as usize;
-        let (fill, knob_style) = if !self.enabled.get() {
-            (theme.disabled, theme.disabled)
-        } else if focus::is_focused(self) {
-            (theme.accent, theme.focused)
+        let state = Interaction::of(self).disabled(!self.enabled.get());
+        let p = &theme.palette;
+        let (fill, knob_style) = if state.disabled {
+            (theme.disabled(), theme.disabled())
+        } else if state.is_active() {
+            let knob = Style::new()
+                .fg(p.primary)
+                .bg(theme.well_color(state.hovered(true)))
+                .add_modifier(Modifier::BOLD);
+            (theme.accent(), knob)
         } else {
-            (theme.accent, theme.accent)
+            (theme.accent(), theme.text())
         };
+        let rest = Style::new().fg(theme.well_color(state.hovered(true)));
         let label = format!(
             " {:>w$}",
             self.text(),
@@ -179,8 +190,8 @@ impl Component for Range {
         Line::from(vec![
             Span::styled("━".repeat(knob), fill),
             Span::styled("●", knob_style),
-            Span::styled("─".repeat(width - knob - 1), theme.muted),
-            Span::styled(label, theme.text),
+            Span::styled("━".repeat(width - knob - 1), rest),
+            Span::styled(label, theme.text()),
         ])
         .render(area, buf);
     }
@@ -247,20 +258,26 @@ impl SpinBox {
 impl Component for SpinState {
     fn render(&self, area: Rect, buf: &mut Buffer) {
         let theme = theme::current();
-        let style = if !self.enabled.get() {
-            theme.disabled
-        } else if focus::is_focused(self) {
-            theme.focused
-        } else {
-            theme.text
+        let state = Interaction::of(self).disabled(!self.enabled.get());
+        let style = theme.well(state);
+        let row = Rect {
+            width: self.preferred_size(area.as_size()).width.min(area.width),
+            height: area.height.min(1),
+            ..area
         };
+        buf.set_style(row, style);
         let width = usize::from(label_width(self) - 1);
+        let arrow = if state.is_active() {
+            theme.text()
+        } else {
+            theme.muted()
+        };
         Line::from(vec![
-            Span::styled("‹", theme.muted),
+            Span::styled("‹", arrow),
             Span::styled(format!(" {:>width$} ", self.text()), style),
-            Span::styled("›", theme.muted),
+            Span::styled("›", arrow),
         ])
-        .render(area, buf);
+        .render(row, buf);
     }
     fn on_input(&self, event: &Event) -> Handled {
         if !self.enabled.get() {

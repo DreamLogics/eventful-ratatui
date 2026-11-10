@@ -5,9 +5,9 @@ use super::{
     handle,
 };
 use crate::{
-    Component, Handled, focus, invalidate,
+    Component, Handled, focus, invalidate, mouse,
     overlay::{Overlay, Placement, overlay},
-    theme,
+    theme::{self, Fill, Interaction},
 };
 use crossterm::event::{Event, KeyCode};
 use ratatui::{
@@ -188,23 +188,24 @@ impl Component for State {
     fn render(&self, area: Rect, buf: &mut Buffer) {
         let theme = theme::current();
         let focused = focus::is_focused(self);
+        let pointer = mouse::hover_position(self);
         let open = self.open_index();
         let mut x = area.x;
         let mut titles = Vec::new();
         let mut line = Line::default();
         for (i, (title, _)) in self.menus.borrow().iter().enumerate() {
             let text = format!(" {title} ");
-            let style = if open == Some(i) {
-                theme.selected
-            } else if focused && self.highlight.get() == i {
-                theme.focused
-            } else {
-                theme.text
-            };
             let width = super::width(&text);
-            titles.push(Rect::new(x, area.y, width, 1));
+            let rect = Rect::new(x, area.y, width, 1);
+            // Ghost buttons; the open menu's title stays lit.
+            let state = Interaction {
+                focused: focused && self.highlight.get() == i,
+                hovered: open == Some(i) || pointer.is_some_and(|p| rect.contains(p)),
+                disabled: false,
+            };
+            titles.push(rect);
             x = x.saturating_add(width);
-            line.push_span(Span::styled(text, style));
+            line.push_span(Span::styled(text, theme.fill(Fill::Ghost, state)));
         }
         line.render(area, buf);
         *self.titles.borrow_mut() = titles;

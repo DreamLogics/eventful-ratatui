@@ -75,8 +75,12 @@ impl Component for State {
             if i > 0 {
                 line.push_span("  ");
             }
-            line.push_span(Span::styled(keys.clone(), theme.accent));
-            line.push_span(Span::styled(format!(" {action}"), theme.muted));
+            // Keys as small chips, the action beside them.
+            let chip = ratatui::style::Style::new()
+                .fg(theme.palette.secondary_foreground)
+                .bg(theme.palette.secondary);
+            line.push_span(Span::styled(format!(" {keys} "), chip));
+            line.push_span(Span::styled(format!(" {action}"), theme.muted()));
         }
         line.render(area, buf);
     }
@@ -85,7 +89,7 @@ impl Component for State {
             .hints
             .borrow()
             .iter()
-            .map(|(k, a)| super::width(k) + super::width(a) + 3)
+            .map(|(k, a)| super::width(k) + super::width(a) + 5)
             .sum();
         Size::new(width.saturating_sub(2).min(available.width), 1)
     }

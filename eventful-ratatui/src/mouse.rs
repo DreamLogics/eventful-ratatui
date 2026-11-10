@@ -63,6 +63,21 @@ pub fn is_hit<C: ?Sized>(component: &C, event: &MouseEvent) -> bool {
     area_of(component).is_some_and(|area| area.contains(position(event)))
 }
 
+/// Whether the pointer is over `component`, or over a component it
+/// rendered, in the last frame. Overlays above it and modal overlays hide it
+/// from the pointer. Pass the component itself; inside `render`, `self`.
+///
+/// Hover changes redraw by themselves, so components can draw a hover state
+/// without handling mouse moves.
+pub fn is_hovered<C: ?Sized>(component: &C) -> bool {
+    tree::is_hovered(addr_of(component))
+}
+
+/// Where the pointer is, if `component` is hovered. See [`is_hovered`].
+pub fn hover_position<C: ?Sized>(component: &C) -> Option<Position> {
+    is_hovered(component).then(tree::pointer).flatten()
+}
+
 /// Where `event` happened.
 pub fn position(event: &MouseEvent) -> Position {
     Position::new(event.column, event.row)

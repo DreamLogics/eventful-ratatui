@@ -1,10 +1,13 @@
 //! [`List`].
 use super::{SelectEventsEmissions, SelectEventsEventSet, SelectEventsSignalsExt, handle};
-use crate::{Component, Handled, focus, invalidate, mouse, theme};
+use crate::{
+    Component, Handled, invalidate, mouse,
+    theme::{self, Interaction},
+};
 use crossterm::event::{Event, KeyCode, KeyModifiers};
 use ratatui::{
     text::{Line, Span},
-    widgets::{Scrollbar, ScrollbarOrientation, ScrollbarState, StatefulWidget, Widget},
+    widgets::Widget,
 };
 use ratatui_core::{
     buffer::Buffer,
@@ -314,32 +317,25 @@ impl Component for State {
 
         let scrollbar = len > height;
         let width = area.width.saturating_sub(u16::from(scrollbar));
-        let focused = focus::is_focused(self);
+        // Large wells lift on focus only; rows show the hover.
+        let well = Interaction::of(self)
+            .hovered(false)
+            .disabled(!self.enabled.get());
+        buf.set_style(area, theme.well(well));
+        let hovered = super::hovered_row(self, area).map(|row| offset + usize::from(row));
         let marked = self.marked.borrow();
-        let highlight = theme.symbols.highlight;
-        let gutter = super::width(highlight);
         for (row, index) in (offset..len.min(offset + height)).enumerate() {
             let rect = Rect::new(area.x, area.y + row as u16, width, 1);
             let selected = self.selected.get() == Some(index);
-            let style = match (selected, focused, self.enabled.get()) {
-                (_, _, false) => theme.disabled,
-                (true, true, _) => theme.selected,
-                (true, false, _) => theme.selected_unfocused,
-                _ => theme.text,
-            };
+            let style = super::row_style(&theme, well, selected, hovered == Some(index));
             buf.set_style(rect, style);
             let mut line = Line::default().style(style);
-            line.push_span(if selected {
-                highlight.to_owned()
-            } else {
-                " ".repeat(gutter as usize)
-            });
+            line.push_span(super::row_marker(&theme, selected && well.focused));
             if self.multi.get() {
                 let on = marked.contains(&index);
-                line.push_span(Span::raw(format!(
-                    "{} ",
-                    theme.symbols.checkbox[usize::from(on)]
-                )));
+                let mark = if on { theme.accent() } else { theme.muted() };
+                line.push_span(Span::styled(theme.symbols.checkbox[usize::from(on)], mark));
+                line.push_span(" ");
             }
             for span in &items[index].spans {
                 line.push_span(span.clone());
@@ -347,17 +343,7 @@ impl Component for State {
             line.render(rect, buf);
         }
         if scrollbar {
-            let mut state = ScrollbarState::new(max_offset + 1)
-                .position(offset)
-                .viewport_content_length(height);
-            Scrollbar::new(ScrollbarOrientation::VerticalRight)
-                .begin_symbol(None)
-                .end_symbol(None)
-                .track_symbol(Some(theme.symbols.scrollbar[0]))
-                .thumb_symbol(theme.symbols.scrollbar[1])
-                .track_style(theme.scrollbar)
-                .thumb_style(theme.scrollbar_thumb)
-                .render(area, buf, &mut state);
+            super::scrollbar(buf, area, &theme, max_offset + 1, offset, height);
         }
     }
 

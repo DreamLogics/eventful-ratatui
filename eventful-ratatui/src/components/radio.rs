@@ -1,6 +1,9 @@
 //! [`RadioGroup`].
 use super::{SelectEventsEmissions, SelectEventsEventSet, SelectEventsSignalsExt, handle};
-use crate::{Component, Handled, invalidate, mouse, theme};
+use crate::{
+    Component, Handled, invalidate, mouse,
+    theme::{self, Fill, Interaction},
+};
 use crossterm::event::{Event, KeyCode};
 use ratatui::{
     text::{Line, Span},
@@ -16,7 +19,7 @@ use std::{
 };
 
 handle! {
-    /// One choice out of several: `(•) Small  ( ) Large`. The group takes
+    /// One choice out of several: `● Small  ○ Large`. The group takes
     /// focus as a whole; arrows move the choice, a click picks one. Emits
     /// [`selected`](super::SelectEventsSignalsExt::selected).
     RadioGroup(State), events = (SelectEventsEventSet, SelectEventsSignalsExt)
@@ -31,8 +34,8 @@ pub struct State {
     events: SelectEventsEmissions,
 }
 
-/// Columns between horizontal options.
-const GAP: u16 = 2;
+/// Columns between horizontal options, beside their padding.
+const GAP: u16 = 1;
 
 impl RadioGroup {
     /// A vertical group of `options` with nothing selected.
@@ -90,7 +93,7 @@ impl State {
     /// The area of each option within `area`.
     fn option_areas(&self, area: Rect) -> Vec<Rect> {
         let theme = theme::current();
-        let symbol = super::width(theme.symbols.radio[0]) + 1;
+        let symbol = super::width(theme.symbols.radio[0]) + 3;
         let mut x = area.x;
         self.options
             .borrow()
@@ -103,7 +106,8 @@ impl State {
                     x = x.saturating_add(width + GAP);
                     rect
                 } else {
-                    Rect::new(area.x, area.y + i as u16, area.width, 1).intersection(area)
+                    let width = symbol + super::width(option);
+                    Rect::new(area.x, area.y + i as u16, width, 1).intersection(area)
                 }
             })
             .collect()
@@ -113,27 +117,38 @@ impl State {
 impl Component for State {
     fn render(&self, area: Rect, buf: &mut Buffer) {
         let theme = theme::current();
-        let focused = crate::focus::is_focused(self);
+        let group = Interaction::of(self).disabled(!self.enabled.get());
+        let pointer = mouse::hover_position(self);
         let selected = self.selected.get();
         let options = self.options.borrow();
         for (i, rect) in self.option_areas(area).into_iter().enumerate() {
             let on = selected == Some(i);
-            let style = if !self.enabled.get() {
-                theme.disabled
-            } else if focused && (on || (selected.is_none() && i == 0)) {
-                theme.focused
-            } else {
-                theme.text
+            // The option keys act on is the focused one.
+            let state = Interaction {
+                focused: group.focused && (on || (selected.is_none() && i == 0)),
+                hovered: pointer.is_some_and(|p| rect.contains(p)),
+                disabled: group.disabled,
             };
-            let symbol_style = if on && self.enabled.get() {
-                theme.accent
+            let fill = theme.fill(Fill::Ghost, state);
+            buf.set_style(rect, fill);
+            let symbol_style = if group.disabled {
+                theme.disabled()
+            } else if on {
+                theme.accent()
             } else {
-                theme.muted
+                theme.muted()
+            };
+            let label = if group.disabled {
+                theme.disabled()
+            } else {
+                fill
             };
             Line::from(vec![
+                Span::raw(" "),
                 Span::styled(theme.symbols.radio[usize::from(on)], symbol_style),
                 Span::raw(" "),
-                Span::styled(options[i].as_str(), style),
+                Span::styled(options[i].as_str(), label),
+                Span::raw(" "),
             ])
             .render(rect, buf);
         }
@@ -184,7 +199,7 @@ impl Component for State {
     }
     fn preferred_size(&self, available: Size) -> Size {
         let theme = theme::current();
-        let symbol = super::width(theme.symbols.radio[0]) + 1;
+        let symbol = super::width(theme.symbols.radio[0]) + 3;
         let options = self.options.borrow();
         let widths = options.iter().map(|o| symbol + super::width(o));
         if self.horizontal.get() {

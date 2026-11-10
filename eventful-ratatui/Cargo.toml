@@ -22,6 +22,7 @@ futures.workspace = true
 futures-timer.workspace = true
 unicode-segmentation = { workspace = true, optional = true }
 unicode-width = { workspace = true, optional = true }
+terminal-colorsaurus.workspace = true
 
 [features]
 default = ["components"]

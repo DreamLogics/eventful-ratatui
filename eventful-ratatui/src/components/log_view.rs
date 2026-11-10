@@ -2,10 +2,7 @@
 use super::handle;
 use crate::{Component, Handled, invalidate, theme};
 use crossterm::event::{Event, KeyCode};
-use ratatui::{
-    text::Line,
-    widgets::{Scrollbar, ScrollbarOrientation, ScrollbarState, StatefulWidget, Widget},
-};
+use ratatui::{text::Line, widgets::Widget};
 use ratatui_core::{
     buffer::Buffer,
     layout::{Rect, Size},
@@ -232,17 +229,7 @@ impl Component for State {
         if scrollbar {
             let theme = theme::current();
             let max = len - height;
-            let mut state = ScrollbarState::new(max + 1)
-                .position(max - back)
-                .viewport_content_length(height);
-            Scrollbar::new(ScrollbarOrientation::VerticalRight)
-                .begin_symbol(None)
-                .end_symbol(None)
-                .track_symbol(Some(theme.symbols.scrollbar[0]))
-                .thumb_symbol(theme.symbols.scrollbar[1])
-                .track_style(theme.scrollbar)
-                .thumb_style(theme.scrollbar_thumb)
-                .render(area, buf, &mut state);
+            super::scrollbar(buf, area, &theme, max + 1, max - back, height);
         }
     }
 

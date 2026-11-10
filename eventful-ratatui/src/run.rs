@@ -43,6 +43,8 @@ pub struct Tui {
     mouse: bool,
     /// The theme to set when the loop starts.
     theme: Option<Theme>,
+    /// The themes to pick from by the terminal's background: dark, light.
+    themes: Option<Box<(Theme, Theme)>>,
 }
 
 impl Default for Tui {
@@ -52,6 +54,7 @@ impl Default for Tui {
             tick: None,
             mouse: false,
             theme: None,
+            themes: None,
         }
     }
 }
@@ -88,9 +91,20 @@ impl Tui {
         self
     }
 
-    /// Draw with `theme`. See [`crate::theme`].
+    /// Draw with `theme`, whatever the terminal's colors. See
+    /// [`crate::theme`].
     pub fn theme(mut self, theme: Theme) -> Self {
         self.theme = Some(theme);
+        self.themes = None;
+        self
+    }
+
+    /// Draw with `dark` or `light`, whichever matches the terminal's
+    /// background (see [`Appearance::detect`](crate::theme::Appearance::detect)).
+    /// The default picks between [`Theme::dark`] and [`Theme::light`].
+    pub fn themes(mut self, dark: Theme, light: Theme) -> Self {
+        self.themes = Some(Box::new((dark, light)));
+        self.theme = None;
         self
     }
 
@@ -99,7 +113,18 @@ impl Tui {
     ///
     /// # Errors
     /// Fails if the terminal cannot be set up, input fails, or drawing fails.
-    pub async fn run<C: Component + ?Sized + 'static>(self, root: &C) -> Result<()> {
+    pub async fn run<C: Component + ?Sized + 'static>(mut self, root: &C) -> Result<()> {
+        if self.theme.is_none() {
+            // Before raw mode and the input stream: the answer arrives as input.
+            let (dark, light) = *self
+                .themes
+                .take()
+                .unwrap_or_else(|| Box::new((Theme::dark(), Theme::light())));
+            self.theme = Some(match theme::Appearance::detect() {
+                theme::Appearance::Dark => dark,
+                theme::Appearance::Light => light,
+            });
+        }
         let mut guard = TerminalGuard::enter()?;
         if self.mouse {
             guard.capture_mouse()?;
@@ -133,7 +158,12 @@ impl Tui {
     {
         let quit = QuitScope::enter();
         let _session = Session::start();
-        if let Some(theme) = self.theme.clone() {
+        // Without a real terminal there is nothing to ask: the dark theme.
+        if let Some(theme) = self
+            .theme
+            .clone()
+            .or_else(|| self.themes.as_ref().map(|t| t.0.clone()))
+        {
             theme::set(theme);
         }
         let mut dispatcher = Dispatcher::new(self.mouse);

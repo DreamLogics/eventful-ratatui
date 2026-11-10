@@ -1,6 +1,9 @@
 //! [`TextInput`].
 use super::{TextEventsEmissions, TextEventsEventSet, TextEventsSignalsExt, handle};
-use crate::{Component, Handled, cursor, focus, invalidate, mouse, theme};
+use crate::{
+    Component, Handled, cursor, focus, invalidate, mouse,
+    theme::{self, Interaction},
+};
 use crossterm::event::{Event, KeyCode, KeyModifiers, MouseButton, MouseEventKind};
 use ratatui::{
     style::Style,
@@ -418,13 +421,21 @@ impl Component for State {
     fn render(&self, area: Rect, buf: &mut Buffer) {
         let theme = theme::current();
         let focused = focus::is_focused(self);
+        let state = Interaction::of(self).disabled(!self.enabled.get());
+        let area = Rect {
+            height: area.height.min(1),
+            ..area
+        };
+        // A well, with a cell of padding on either side of the text.
+        buf.set_style(area, theme.well(state));
+        let area = super::pad(area);
         let width = usize::from(area.width);
         if width == 0 || area.height == 0 {
             return;
         }
         let cells = self.cells();
         if cells.is_empty() {
-            Span::styled(self.placeholder.borrow().as_str(), theme.placeholder).render(area, buf);
+            Span::styled(self.placeholder.borrow().as_str(), theme.placeholder()).render(area, buf);
             if focused {
                 cursor::show_at(area.as_position());
             }
@@ -441,11 +452,11 @@ impl Component for State {
         self.scroll.set(scroll);
 
         let base = if !self.enabled.get() {
-            theme.disabled
+            theme.disabled()
         } else if self.error.borrow().is_some() {
-            theme.error
+            theme.error()
         } else {
-            theme.input
+            theme.text()
         };
         let selection = self.selection().filter(|_| focused);
         let mut spans = Vec::new();
@@ -457,7 +468,7 @@ impl Component for State {
             if x >= scroll {
                 let selected = selection.as_ref().is_some_and(|s| s.contains(&i));
                 let style: Style = if selected {
-                    base.patch(theme.text_selection)
+                    base.patch(theme.selection())
                 } else {
                     base
                 };
@@ -487,7 +498,7 @@ impl Component for State {
             return Handled::Yes;
         }
         if let Event::Mouse(m) = event {
-            let area = mouse::area_of(self).unwrap_or_default();
+            let area = super::pad(mouse::area_of(self).unwrap_or_default());
             let column = self.scroll.get() + usize::from(m.column.saturating_sub(area.x));
             let at = self.offset_at(&self.cells(), column);
             match m.kind {

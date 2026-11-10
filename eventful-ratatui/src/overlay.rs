@@ -409,11 +409,11 @@ pub(crate) fn render(screen: Rect, buf: &mut Buffer) {
     let theme = theme::current();
     for (id, component, placement, dim) in layers {
         if dim {
-            buf.set_style(screen, theme.backdrop);
+            dim_backdrop(buf, screen, theme.palette.background);
         }
         let area = placement.resolve(&*component, screen);
         Clear.render(area, buf);
-        buf.set_style(area, theme.surface);
+        buf.set_style(area, theme.surface());
         tree::set_layer(id);
         component.render(area, buf);
         LAYERS.with_borrow_mut(|layers| {
@@ -423,6 +423,27 @@ pub(crate) fn render(screen: Rect, buf: &mut Buffer) {
         });
     }
     tree::set_layer(BASE);
+}
+
+/// Blend every cell of `area` toward `background`, so a modal stands out
+/// from what it covers while that stays readable.
+fn dim_backdrop(buf: &mut Buffer, area: Rect, background: ratatui::style::Color) {
+    use crate::theme::{BACKDROP_DIM, color::blend};
+    if crate::theme::color::channels(background).is_none() {
+        buf.set_style(
+            area,
+            ratatui::style::Style::new().add_modifier(ratatui::style::Modifier::DIM),
+        );
+        return;
+    }
+    let area = area.intersection(buf.area);
+    for y in area.top()..area.bottom() {
+        for x in area.left()..area.right() {
+            let cell = &mut buf[(x, y)];
+            cell.fg = blend(cell.fg, background, BACKDROP_DIM);
+            cell.bg = blend(cell.bg, background, BACKDROP_DIM);
+        }
+    }
 }
 
 /// Focus new focus-taking layers, now that they have been rendered.

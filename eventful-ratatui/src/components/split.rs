@@ -124,11 +124,8 @@ impl Component for State {
         let (first, divider, second) = self.areas(area);
         self.first.render(first, buf);
         self.second.render(second, buf);
-        let style = if self.dragging.get() {
-            theme.border_focused
-        } else {
-            theme.border
-        };
+        let hovered = mouse::hover_position(self).is_some_and(|p| divider.contains(p));
+        let style = theme.border(self.dragging.get() || hovered);
         match self.direction {
             Direction::Horizontal => {
                 for y in divider.top()..divider.bottom() {

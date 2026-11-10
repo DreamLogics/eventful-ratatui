@@ -1,5 +1,9 @@
 //! Library components, driven through the harness.
-use eventful_ratatui::{prelude::*, testing::Harness};
+use eventful_ratatui::{
+    prelude::*,
+    testing::Harness,
+    theme::{Fill, Interaction},
+};
 use std::rc::Rc;
 
 /// Renders its children one per row, at their preferred width.
@@ -23,10 +27,10 @@ fn buttons_render_focus_and_click() {
         12,
         2,
     );
-    assert_eq!(ui.lines(), ["[ Save ]", "[ Quit ]"]);
+    assert_eq!(ui.lines(), ["  Save", "  Quit"]);
     ui.key("tab");
     assert!(save.is_focused());
-    let focused = theme::current().focused;
+    let focused = theme::current().fill(Fill::Primary, Interaction::default().focused(true));
     assert_eq!(ui.buffer()[(0, 0)].bg, focused.bg.unwrap());
     ui.click(2, 1);
     assert!(quit.is_focused(), "a click focuses");
@@ -44,26 +48,26 @@ fn checkboxes_and_switches_toggle() {
         12,
         2,
     );
-    assert_eq!(ui.lines(), ["[ ] Bold", "──● Wifi"]);
+    assert_eq!(ui.lines(), [" □ Bold", " ▐  ●▌ Wifi"]);
     ui.key("tab").key("space");
     assert!(check.is_checked());
     ui.click(0, 1);
     assert!(!switch.is_checked());
-    assert_eq!(ui.lines(), ["[x] Bold", "○── Wifi"]);
+    assert_eq!(ui.lines(), [" ■ Bold", " ▐●  ▌ Wifi"]);
 }
 
 #[test]
 fn radio_groups_select_with_arrows_and_clicks() {
     let size = RadioGroup::new(["Small", "Medium", "Large"]).selected(0);
     let mut ui = Harness::new(size.clone(), 12, 3);
-    assert_eq!(ui.lines(), ["(•) Small", "( ) Medium", "( ) Large"]);
+    assert_eq!(ui.lines(), [" ● Small", " ○ Medium", " ○ Large"]);
     ui.key("tab").key("down").key("down").key("down");
     assert_eq!(size.selection(), Some(2), "stops at the end");
     ui.click(1, 1);
     assert_eq!(size.selection(), Some(1));
     let row = RadioGroup::new(["a", "b"]).horizontal();
     let mut ui = Harness::new(row.clone(), 12, 1);
-    assert_eq!(ui.lines(), ["( ) a  ( ) b"]);
+    assert_eq!(ui.lines(), [" ○ a   ○ b"]);
     ui.click(8, 0);
     assert_eq!(row.selection(), Some(1));
 }
@@ -75,15 +79,15 @@ fn panels_frame_a_child_and_light_up_with_focus() {
     let mut ui = Harness::new(panel, 14, 3);
     assert_eq!(
         ui.lines(),
-        ["╭ User ──────╮", "│name        │", "╰────────────╯"]
+        ["╭ User ──────╮", "│ name       │", "╰────────────╯"]
     );
-    let border = theme::current().border;
+    let border = theme::current().border(false);
     assert_eq!(ui.buffer()[(0, 0)].fg, border.fg.unwrap());
     ui.key("tab");
     assert!(name.is_focused());
     assert_eq!(
         ui.buffer()[(0, 0)].fg,
-        theme::current().border_focused.fg.unwrap()
+        theme::current().border(true).fg.unwrap()
     );
 }
 
@@ -131,21 +135,23 @@ fn text_inputs_select_and_replace() {
 #[test]
 fn text_inputs_scroll_and_place_the_cursor() {
     let (input, mut ui) = input("abcdefghij", 5);
-    assert_eq!(ui.lines(), ["ghij"], "the cursor at the end stays visible");
-    assert_eq!(ui.cursor(), Some(Position::new(4, 0)));
+    // A cell of padding on either side leaves three for the text.
+    assert_eq!(ui.lines(), [" ij"], "the cursor at the end stays visible");
+    assert_eq!(ui.cursor(), Some(Position::new(3, 0)));
     ui.key("home");
-    assert_eq!(ui.lines(), ["abcde"]);
-    assert_eq!(ui.cursor(), Some(Position::new(0, 0)));
-    ui.click(3, 0);
+    assert_eq!(ui.lines(), [" abc"]);
+    assert_eq!(ui.cursor(), Some(Position::new(1, 0)));
+    ui.click(4, 0);
     assert_eq!(input.cursor(), 3);
-    ui.drag((1, 0), (4, 0));
-    assert_eq!(input.selection(), Some(1..4));
+    // The view scrolled by one to keep the cursor visible.
+    ui.drag((2, 0), (4, 0));
+    assert_eq!(input.selection(), Some(2..4));
     let wide = TextInput::new().value("日本語");
     let mut ui = Harness::new(wide.clone(), 10, 1);
     ui.key("tab").key("left");
     assert_eq!(
         ui.cursor(),
-        Some(Position::new(4, 0)),
+        Some(Position::new(5, 0)),
         "wide characters take two cells"
     );
 }
@@ -163,7 +169,7 @@ fn text_inputs_mask_limit_and_validate() {
     assert_eq!(pin.error().as_deref(), Some("4 digits"));
     ui.key("tab").type_text("123456");
     assert_eq!(pin.text(), "1234");
-    assert_eq!(ui.lines(), ["••••"]);
+    assert_eq!(ui.lines(), [" ••••"]);
     assert!(pin.is_valid());
 }
 
@@ -182,20 +188,21 @@ fn spinners_and_indeterminate_bars_animate() {
     let bar = ProgressBar::new();
     bar.set_value(Some(0.5));
     let ui = Harness::new(bar, 14, 1);
-    assert_eq!(ui.lines(), ["━━━━━────  50%"]);
+    // Four and a half cells of nine, in eighths.
+    assert_eq!(ui.lines(), ["████▌      50%"]);
 }
 
 #[test]
 fn key_hints_render_and_derive_from_bindings() {
     let hints = KeyHints::new().hint("tab", "focus").hint("esc", "quit");
-    let ui = Harness::new(hints, 20, 1);
-    assert_eq!(ui.lines(), ["tab focus  esc quit"]);
+    let ui = Harness::new(hints, 24, 1);
+    assert_eq!(ui.lines(), [" tab  focus   esc  quit"]);
     let bindings = [
         ("j".parse().unwrap(), "next_item"),
         ("down".parse().unwrap(), "next_item"),
     ];
     let ui = Harness::new(KeyHints::from_bindings(&bindings), 20, 1);
-    assert_eq!(ui.lines(), ["j/down next item"]);
+    assert_eq!(ui.lines(), [" j/down  next item"]);
 }
 
 mod events {
@@ -275,7 +282,7 @@ fn items(n: usize) -> Vec<String> {
 fn lists_select_scroll_and_reveal_the_selection() {
     let list = List::new(items(10));
     let mut ui = Harness::new(list.clone(), 12, 3);
-    assert_eq!(ui.lines()[0], "  item 0   │".trim_end().replace('│', "┃"));
+    assert_eq!(ui.lines()[0], " item 0    ┃");
     ui.key("tab").key("down");
     assert_eq!(
         list.selection(),
@@ -284,12 +291,12 @@ fn lists_select_scroll_and_reveal_the_selection() {
     );
     ui.keys(&["down", "down", "down"]);
     assert_eq!(list.selection(), Some(3));
-    assert!(ui.lines()[2].starts_with("› item 3"), "{:?}", ui.lines());
+    assert!(ui.lines()[2].starts_with("▌item 3"), "{:?}", ui.lines());
     ui.key("end");
-    assert!(ui.lines()[2].starts_with("› item 9"));
+    assert!(ui.lines()[2].starts_with("▌item 9"));
     ui.scroll(1, 1, -1);
     assert!(
-        ui.lines()[0].starts_with("  item 4"),
+        ui.lines()[0].starts_with(" item 4"),
         "the wheel scrolls the view only"
     );
     assert_eq!(list.selection(), Some(9));
@@ -307,7 +314,7 @@ fn lists_search_as_you_type_and_mark_items() {
     assert_eq!(list.selection(), Some(2), "a repeated letter cycles");
     ui.key("space").key("up").key("space");
     assert_eq!(list.marked(), [1, 2]);
-    assert!(ui.lines()[1].contains("[x] banana"), "{:?}", ui.lines());
+    assert!(ui.lines()[1].contains("■ banana"), "{:?}", ui.lines());
     let vim = List::new(items(3)).vim_keys();
     let mut ui = Harness::new(vim.clone(), 12, 3);
     ui.key("tab").key("j").key("j").key("k");
@@ -323,7 +330,7 @@ fn tabs_switch_pages_by_key_and_click() {
         .page("User", name.clone())
         .page("About", KeyHints::new().hint("v", "0.1"));
     let mut ui = Harness::new(tabs.clone(), 20, 2);
-    assert_eq!(ui.lines(), [" User │ About", "ada"]);
+    assert_eq!(ui.lines(), ["  User     About", " ada"]);
     ui.key("tab");
     assert!(tabs.is_focused());
     ui.key("tab");
@@ -334,7 +341,7 @@ fn tabs_switch_pages_by_key_and_click() {
         tabs.is_focused(),
         "focus left the hidden page for the tab row"
     );
-    assert_eq!(ui.lines()[1], "v 0.1");
+    assert_eq!(ui.lines()[1], " v  0.1");
     ui.key("left");
     assert_eq!(tabs.selection(), 0);
     ui.click(9, 0);
@@ -364,7 +371,7 @@ fn scroll_views_scroll_the_focus_into_view_and_map_input() {
     let mut ui = Harness::new(view.clone(), 12, 3);
     assert_eq!(
         ui.lines()[0].trim_end_matches(['┃', '│']).trim_end(),
-        "field 0"
+        " field 0"
     );
     for _ in 0..6 {
         ui.key("tab");
@@ -377,7 +384,7 @@ fn scroll_views_scroll_the_focus_into_view_and_map_input() {
     );
     assert_eq!(
         ui.cursor(),
-        Some(Position::new(7, 2)),
+        Some(Position::new(8, 2)),
         "the cursor maps to the screen"
     );
     ui.click(2, 0);
@@ -420,7 +427,7 @@ fn stacks_lay_out_children_and_report_their_size() {
         .fit(Label::new("a"))
         .fit(Checkbox::new("b"));
     let ui = Harness::new(Stack::vertical().fit(form).fit(row), 12, 4);
-    assert_eq!(ui.lines(), ["Name", "", "[ OK ]", "a [ ] b"]);
+    assert_eq!(ui.lines(), ["Name", "", "  OK", "a  □ b"]);
 }
 
 #[test]

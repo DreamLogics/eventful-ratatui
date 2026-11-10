@@ -1,9 +1,12 @@
 //! [`Badge`], [`Chip`] and [`Breadcrumb`].
 use super::{
-    ActionEventsEmissions, ActionEventsEventSet, ActionEventsSignalsExt, ToastKind,
-    ToggleEventsEmissions, ToggleEventsEventSet, ToggleEventsSignalsExt, handle,
+    ActionEventsEmissions, ActionEventsEventSet, ActionEventsSignalsExt, ToggleEventsEmissions,
+    ToggleEventsEventSet, ToggleEventsSignalsExt, handle,
 };
-use crate::{Component, Handled, focus, invalidate, theme};
+use crate::{
+    Component, Handled, focus, invalidate, mouse,
+    theme::{self, Fill, Interaction, Tone, color::blend},
+};
 use crossterm::event::{Event, KeyCode};
 use ratatui::{
     style::{Modifier, Style},
@@ -20,27 +23,35 @@ use std::{
 };
 
 handle! {
-    /// A small status label: ` 3 `, ` NEW `, ` failed `. Not interactive.
+    /// A small status pill: `3`, `NEW`, `failed`, tinted by its
+    /// [`Tone`]. Not interactive.
     Badge(BadgeState)
 }
 
 #[doc(hidden)]
 pub struct BadgeState {
     text: RefCell<String>,
-    kind: Cell<Option<ToastKind>>,
+    tone: Cell<Tone>,
+    solid: Cell<bool>,
 }
 
 impl Badge {
-    /// An accent-colored badge.
+    /// A badge in the primary tone.
     pub fn new(text: impl Into<String>) -> Self {
         Self(Rc::new(BadgeState {
             text: RefCell::new(text.into()),
-            kind: Cell::new(None),
+            tone: Cell::new(Tone::Primary),
+            solid: Cell::new(false),
         }))
     }
-    /// Color it by meaning instead of the accent.
-    pub fn kind(self, kind: ToastKind) -> Self {
-        self.0.kind.set(Some(kind));
+    /// Color it by meaning.
+    pub fn tone(self, tone: Tone) -> Self {
+        self.0.tone.set(tone);
+        self
+    }
+    /// Fill it with its tone instead of tinting it.
+    pub fn solid(self) -> Self {
+        self.0.solid.set(true);
         self
     }
     /// Change the text.
@@ -50,30 +61,30 @@ impl Badge {
     }
 }
 
-/// The reversed style of a meaning: colored background.
-fn filled(style: Style) -> Style {
-    style.add_modifier(Modifier::REVERSED | Modifier::BOLD)
-}
-
 impl Component for BadgeState {
     fn render(&self, area: Rect, buf: &mut Buffer) {
         let theme = theme::current();
-        let color = match self.kind.get() {
-            None => theme.accent,
-            Some(ToastKind::Info) => theme.info,
-            Some(ToastKind::Success) => theme.success,
-            Some(ToastKind::Warning) => theme.warning,
-            Some(ToastKind::Error) => theme.error,
+        let tone = theme.tone(self.tone.get());
+        let style = if self.solid.get() {
+            Style::new()
+                .fg(theme.palette.background)
+                .bg(tone)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::new()
+                .fg(tone)
+                .bg(blend(tone, theme.palette.background, 78))
         };
-        Span::styled(format!(" {} ", self.text.borrow()), filled(color)).render(area, buf);
+        Line::from(super::pill(&theme, &self.text.borrow(), style)).render(area, buf);
     }
     fn preferred_size(&self, _: Size) -> Size {
-        Size::new(super::width(&self.text.borrow()) + 2, 1)
+        Size::new(super::width(&self.text.borrow()) + 4, 1)
     }
 }
 
 handle! {
-    /// A toggleable filter chip: `( rust )`, filled while selected. Space,
+    /// A toggleable filter chip: a pill, filled with the primary color while
+    /// selected. Space,
     /// Enter or a click toggles it. Emits
     /// [`toggled`](super::ToggleEventsSignalsExt::toggled).
     Chip(ChipState), events = (ToggleEventsEventSet, ToggleEventsSignalsExt)
@@ -114,12 +125,14 @@ impl Chip {
 impl Component for ChipState {
     fn render(&self, area: Rect, buf: &mut Buffer) {
         let theme = theme::current();
-        let style = match (self.on.get(), focus::is_focused(self)) {
-            (_, true) => theme.focused,
-            (true, false) => filled(theme.accent),
-            (false, false) => theme.muted,
+        let state = Interaction::of(self);
+        let fill = if self.on.get() {
+            Fill::Primary
+        } else {
+            Fill::Secondary
         };
-        Span::styled(format!("( {} )", self.label.borrow()), style).render(area, buf);
+        let style = theme.fill(fill, state);
+        Line::from(super::pill(&theme, &self.label.borrow(), style)).render(area, buf);
     }
     fn on_input(&self, event: &Event) -> Handled {
         if super::activates(event) || super::left_press(event).is_some() {
@@ -199,25 +212,30 @@ impl Component for CrumbState {
         let theme = theme::current();
         let items = self.items.borrow();
         let focused = focus::is_focused(self);
+        let pointer = mouse::hover_position(self);
         let mut line = Line::default();
         let mut areas = Vec::new();
         let mut x = area.x;
         for (i, (_, label)) in items.iter().enumerate() {
             if i > 0 {
-                line.push_span(Span::styled(theme.symbols.separator, theme.muted));
+                line.push_span(Span::styled(theme.symbols.separator, theme.muted()));
                 x += super::width(theme.symbols.separator);
             }
             let last = i + 1 == items.len();
+            let width = super::width(label);
+            let rect = Rect::new(x, area.y, width, 1).intersection(area);
+            let hovered = !last && pointer.is_some_and(|p| rect.contains(p));
             let style = if focused && self.highlight.get() == Some(i) {
-                theme.focused
+                theme.fill(Fill::Ghost, Interaction::default().focused(true))
             } else if last {
-                theme.title
+                theme.title()
+            } else if hovered {
+                theme.text().add_modifier(Modifier::UNDERLINED)
             } else {
-                theme.accent
+                theme.muted()
             };
             line.push_span(Span::styled(label.clone(), style));
-            let width = super::width(label);
-            areas.push(Rect::new(x, area.y, width, 1).intersection(area));
+            areas.push(rect);
             x = x.saturating_add(width);
         }
         line.render(area, buf);

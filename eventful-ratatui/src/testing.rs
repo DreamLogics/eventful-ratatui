@@ -130,6 +130,11 @@ impl<C: Component + 'static> Harness<C> {
         }))
     }
 
+    /// Move the pointer to `column`, `row` without a button, for hover.
+    pub fn hover(&mut self, column: u16, row: u16) -> &mut Self {
+        self.mouse(MouseEventKind::Moved, column, row)
+    }
+
     /// Click the left button at `column`, `row`.
     pub fn click(&mut self, column: u16, row: u16) -> &mut Self {
         self.mouse(MouseEventKind::Down(MouseButton::Left), column, row)

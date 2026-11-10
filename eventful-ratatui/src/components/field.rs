@@ -87,9 +87,9 @@ impl Component for State {
             return;
         }
         let label_style = if focus::within(self) {
-            theme.accent
+            theme.accent()
         } else {
-            theme.muted
+            theme.muted()
         };
         Span::styled(self.label.borrow().as_str(), label_style)
             .render(Rect::new(area.x, area.y, area.width, 1), buf);
@@ -100,7 +100,7 @@ impl Component for State {
         if message_rows == 1 && area.height > 1 {
             let row = Rect::new(area.x, area.bottom() - 1, area.width, 1);
             if let Some((message, error)) = self.message() {
-                Span::styled(message, if error { theme.error } else { theme.muted })
+                Span::styled(message, if error { theme.error() } else { theme.muted() })
                     .render(row, buf);
             }
         }

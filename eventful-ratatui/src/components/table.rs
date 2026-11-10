@@ -1,11 +1,14 @@
 //! [`Table`].
 use super::{SelectEventsEmissions, SelectEventsEventSet, SelectEventsSignalsExt, handle};
-use crate::{Component, Handled, focus, invalidate, mouse, theme};
+use crate::{
+    Component, Handled, invalidate, mouse,
+    theme::{self, Interaction},
+};
 use crossterm::event::{Event, KeyCode, KeyModifiers};
 use ratatui::{
     style::Modifier,
     text::{Line, Span},
-    widgets::{Scrollbar, ScrollbarOrientation, ScrollbarState, StatefulWidget, Widget},
+    widgets::Widget,
 };
 use ratatui_core::{
     buffer::Buffer,
@@ -275,6 +278,9 @@ impl Component for State {
         if area.height == 0 {
             return;
         }
+        // Large wells lift on focus only; rows show the hover.
+        let well = Interaction::of(self).hovered(false);
+        buf.set_style(area, theme.well(well));
         let body_height = usize::from(area.height - 1);
         self.height.set(body_height);
         let order = self.order.borrow();
@@ -295,9 +301,9 @@ impl Component for State {
             Line::from(vec![
                 Span::styled(
                     column.title.as_str(),
-                    theme.title.add_modifier(Modifier::BOLD),
+                    theme.muted().add_modifier(Modifier::BOLD),
                 ),
-                Span::styled(marker, theme.accent),
+                Span::styled(marker, theme.accent()),
             ])
             .alignment(column.alignment)
             .render(*rect, buf);
@@ -316,17 +322,16 @@ impl Component for State {
             }
         }
         self.offset.set(offset);
-        let focused = focus::is_focused(self);
         let rows = self.rows.borrow();
+        let body = Rect::new(area.x, area.y + 1, area.width, area.height - 1);
+        let hovered = super::hovered_row(self, body).map(|row| offset + usize::from(row));
         for (y, display) in (offset..len.min(offset + body_height)).enumerate() {
             let index = order[display];
             let row = Rect::new(area.x, area.y + 1 + y as u16, width, 1);
-            let style = match (self.selected.get() == Some(index), focused) {
-                (true, true) => theme.selected,
-                (true, false) => theme.selected_unfocused,
-                _ => theme.text,
-            };
+            let selected = self.selected.get() == Some(index);
+            let style = super::row_style(&theme, well, selected, hovered == Some(display));
             buf.set_style(row, style);
+            super::row_marker(&theme, selected && well.focused).render(row, buf);
             for ((cell, column), rect) in rows[index].iter().zip(&self.columns).zip(columns.iter())
             {
                 let rect = Rect::new(rect.x, row.y, rect.width, 1);
@@ -334,18 +339,14 @@ impl Component for State {
             }
         }
         if scrollbar {
-            let body = Rect::new(area.x, area.y + 1, area.width, area.height - 1);
-            let mut state = ScrollbarState::new(len - body_height + 1)
-                .position(offset)
-                .viewport_content_length(body_height);
-            Scrollbar::new(ScrollbarOrientation::VerticalRight)
-                .begin_symbol(None)
-                .end_symbol(None)
-                .track_symbol(Some(theme.symbols.scrollbar[0]))
-                .thumb_symbol(theme.symbols.scrollbar[1])
-                .track_style(theme.scrollbar)
-                .thumb_style(theme.scrollbar_thumb)
-                .render(body, buf, &mut state);
+            super::scrollbar(
+                buf,
+                body,
+                &theme,
+                len - body_height + 1,
+                offset,
+                body_height,
+            );
         }
     }
 

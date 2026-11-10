@@ -2,7 +2,6 @@
 use super::handle;
 use crate::{Component, Handled, focus, invalidate, tree};
 use crossterm::event::{Event, KeyCode};
-use ratatui::widgets::{Scrollbar, ScrollbarOrientation, ScrollbarState, StatefulWidget};
 use ratatui_core::{
     buffer::Buffer,
     layout::{Rect, Size},
@@ -123,6 +122,11 @@ impl Component for State {
 
         let content = Rect::new(area.x, area.y, width, height);
         let mut canvas = Buffer::empty(content);
+        // Start from the colors underneath, so empty cells don't punch holes.
+        let under = &buf[(area.x, area.y)];
+        let mut base = ratatui::style::Style::new().bg(under.bg).fg(under.fg);
+        base.add_modifier = ratatui::style::Modifier::empty();
+        canvas.set_style(content, base);
         {
             let viewport = Rect::new(area.x, area.y, width, area.height);
             let _transform = tree::push_viewport(0, -i32::from(offset), viewport);
@@ -135,17 +139,14 @@ impl Component for State {
             }
         }
         let theme = crate::theme::current();
-        let mut state = ScrollbarState::new(usize::from(max) + 1)
-            .position(usize::from(offset))
-            .viewport_content_length(usize::from(area.height));
-        Scrollbar::new(ScrollbarOrientation::VerticalRight)
-            .begin_symbol(None)
-            .end_symbol(None)
-            .track_symbol(Some(theme.symbols.scrollbar[0]))
-            .thumb_symbol(theme.symbols.scrollbar[1])
-            .track_style(theme.scrollbar)
-            .thumb_style(theme.scrollbar_thumb)
-            .render(area, buf, &mut state);
+        super::scrollbar(
+            buf,
+            area,
+            &theme,
+            usize::from(max) + 1,
+            usize::from(offset),
+            usize::from(area.height),
+        );
     }
 
     fn on_input(&self, event: &Event) -> Handled {

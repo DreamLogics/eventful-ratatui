@@ -17,6 +17,19 @@ fn key(c: char) -> io::Result<Event> {
     Ok(Event::Key(KeyEvent::from(KeyCode::Char(c))))
 }
 
+/// The text on `backend`'s screen, one string per row; styles are left out
+/// because every cell carries the theme's colors.
+fn text(backend: &TestBackend) -> Vec<String> {
+    let buffer = backend.buffer();
+    (0..buffer.area.height)
+        .map(|y| {
+            (0..buffer.area.width)
+                .map(|x| buffer[(x, y)].symbol())
+                .collect()
+        })
+        .collect()
+}
+
 fn terminal() -> Terminal<TestBackend> {
     Terminal::new(TestBackend::new(12, 2)).unwrap()
 }
@@ -68,9 +81,7 @@ fn input_updates_the_final_frame_and_redraws_coalesce() {
             .run_with(&mut terminal, input, &counter),
     )
     .unwrap();
-    terminal
-        .backend()
-        .assert_buffer_lines(["count: 50   ", "            "]);
+    assert_eq!(text(terminal.backend()), ["count: 50   ", "            "]);
     assert_eq!(counter.renders.get(), 2);
 }
 
@@ -203,9 +214,7 @@ fn worker_events_redraw_main_shard_components() {
         };
         let (result, ()) = futures::join!(Tui::new().run_with(&mut terminal, rx, &log), script);
         result.unwrap();
-        terminal
-            .backend()
-            .assert_buffer_lines(["a,b         ", "            "]);
+        assert_eq!(text(terminal.backend()), ["a,b         ", "            "]);
     });
 }
 
@@ -261,9 +270,7 @@ fn a_flood_of_worker_events_is_coalesced_into_frames() {
         result.unwrap();
         let elapsed = started.elapsed();
         assert_eq!(sink.received.get(), LINES + 1);
-        terminal
-            .backend()
-            .assert_buffer_lines(["20001       ", "            "]);
+        assert_eq!(text(terminal.backend()), ["20001       ", "            "]);
         // One initial frame, at most one per interval, and the final one.
         let bound = (elapsed.as_secs_f64() * f64::from(FPS)).ceil() as u32 + 2;
         let renders = sink.renders.get();

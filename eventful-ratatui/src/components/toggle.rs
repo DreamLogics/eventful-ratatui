@@ -1,8 +1,15 @@
 //! [`Checkbox`] and [`Switch`].
 use super::{ToggleEventsEmissions, ToggleEventsEventSet, ToggleEventsSignalsExt, handle};
-use crate::{Component, Handled, invalidate, theme};
+use crate::{
+    Component, Handled, invalidate,
+    theme::{
+        self, FOCUS_SHIFT, Fill, HOVER_SHIFT, Interaction, Theme,
+        color::{blend, lift},
+    },
+};
 use crossterm::event::Event;
 use ratatui::{
+    style::Style,
     text::{Line, Span},
     widgets::Widget,
 };
@@ -53,25 +60,41 @@ impl Component for State {
     fn render(&self, area: Rect, buf: &mut Buffer) {
         let theme = theme::current();
         let on = self.on.get();
-        let symbol = match self.kind {
-            Kind::Checkbox => theme.symbols.checkbox[usize::from(on)],
-            Kind::Switch => theme.symbols.switch[usize::from(on)],
+        let state = Interaction::of(self).disabled(!self.enabled.get());
+        let row = Rect {
+            width: self.preferred_size(area.as_size()).width.min(area.width),
+            height: area.height.min(1),
+            ..area
         };
-        let (symbol_style, label_style) = if !self.enabled.get() {
-            (theme.disabled, theme.disabled)
-        } else if crate::focus::is_focused(self) {
-            (theme.focused, theme.text)
-        } else if on {
-            (theme.accent, theme.text)
+        // The whole row is the target: a ghost fill while active.
+        let fill = theme.fill(Fill::Ghost, state);
+        buf.set_style(row, fill);
+        let label_style = if state.disabled {
+            theme.disabled()
         } else {
-            (theme.muted, theme.text)
+            fill
         };
+        let mut line = Line::default();
+        line.push_span(" ");
+        match self.kind {
+            Kind::Checkbox => {
+                let mark = if state.disabled {
+                    theme.disabled()
+                } else if on {
+                    theme.accent()
+                } else {
+                    theme.muted()
+                };
+                line.push_span(Span::styled(theme.symbols.checkbox[usize::from(on)], mark));
+            }
+            Kind::Switch => line.spans.extend(switch(&theme, on, state)),
+        }
         let label = self.label.borrow();
-        let mut line = Line::from(Span::styled(symbol, symbol_style));
         if !label.is_empty() {
             line.push_span(Span::styled(format!(" {label}"), label_style));
         }
-        line.render(area, buf);
+        line.push_span(" ");
+        line.render(row, buf);
     }
     fn on_input(&self, event: &Event) -> Handled {
         if !self.enabled.get() {
@@ -89,13 +112,57 @@ impl Component for State {
     fn preferred_size(&self, _: Size) -> Size {
         let theme = theme::current();
         let symbol = match self.kind {
-            Kind::Checkbox => theme.symbols.checkbox[1],
-            Kind::Switch => theme.symbols.switch[1],
+            Kind::Checkbox => super::width(theme.symbols.checkbox[1]),
+            Kind::Switch => SWITCH_WIDTH,
         };
         let label = self.label.borrow();
-        let gap = u16::from(!label.is_empty());
-        Size::new(super::width(symbol) + gap + super::width(&label), 1)
+        let label = if label.is_empty() {
+            0
+        } else {
+            super::width(&label) + 1
+        };
+        Size::new(symbol + label + 2, 1)
     }
+}
+
+/// Cells of a switch: two ends around a three-cell track.
+const SWITCH_WIDTH: u16 = 5;
+
+/// A switch's pill: `▐●  ▌` off, `▐  ●▌` on.
+fn switch(theme: &Theme, on: bool, state: Interaction) -> Vec<Span<'static>> {
+    let p = &theme.palette;
+    let (track, knob) = if on {
+        (p.primary, p.primary_foreground)
+    } else {
+        (theme.well_color(Interaction::default()), p.muted)
+    };
+    let track = if state.disabled {
+        blend(track, p.background, crate::theme::DISABLED_DIM)
+    } else if state.is_active() {
+        lift(
+            track,
+            if state.hovered {
+                HOVER_SHIFT
+            } else {
+                FOCUS_SHIFT
+            },
+        )
+    } else {
+        track
+    };
+    let inner = Style::new().fg(knob).bg(track);
+    let [left, right] = theme.symbols.ends;
+    let ends = Style::new().fg(track);
+    let body = if on {
+        format!("  {}", theme.symbols.knob)
+    } else {
+        format!("{}  ", theme.symbols.knob)
+    };
+    vec![
+        Span::styled(left, ends),
+        Span::styled(body, inner),
+        Span::styled(right, ends),
+    ]
 }
 
 /// Shared API of the two toggles.
@@ -147,14 +214,14 @@ macro_rules! toggle_api {
 }
 
 handle! {
-    /// A checkbox: `[x] Label`. Space, Enter or a click toggles it and emits
+    /// A checkbox: `■ Label`. Space, Enter or a click toggles it and emits
     /// [`toggled`](super::ToggleEventsSignalsExt::toggled).
     Checkbox(State), events = (ToggleEventsEventSet, ToggleEventsSignalsExt)
 }
 toggle_api!(Checkbox, Kind::Checkbox);
 
 handle! {
-    /// An on/off switch: `──● Label`. Behaves like [`Checkbox`]; use it for
+    /// An on/off switch: `▐  ●▌ Label`. Behaves like [`Checkbox`]; use it for
     /// settings that apply immediately.
     Switch(State), events = (ToggleEventsEventSet, ToggleEventsSignalsExt)
 }

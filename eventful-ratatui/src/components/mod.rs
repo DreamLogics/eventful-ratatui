@@ -7,6 +7,28 @@
 //! input work without extra code. Draw styles come from the current
 //! [`Theme`](crate::theme::Theme).
 //!
+//! The look favors fills over borders: buttons and tabs are filled blocks,
+//! inputs, lists and tracks sit in "wells" a shade off the background, and
+//! every control lights up under the mouse pointer. Draw your own components
+//! the same way with the theme's state styles:
+//!
+//! ```
+//! use eventful_ratatui::{prelude::*, theme::{Fill, Interaction}};
+//!
+//! struct Tag(&'static str);
+//! impl Component for Tag {
+//!     fn render(&self, area: Rect, buf: &mut Buffer) {
+//!         let theme = theme::current();
+//!         // Focused and hovered come from the last frame.
+//!         let style = theme.fill(Fill::Ghost, Interaction::of(self));
+//!         Line::styled(format!(" {} ", self.0), style).render(area, buf);
+//!     }
+//!     fn focusable(&self) -> bool {
+//!         true
+//!     }
+//! }
+//! ```
+//!
 //! Components report what the user did through eventful-rs events. Connect a
 //! signal to a method of your component:
 //!
@@ -82,9 +104,10 @@ mod toast;
 mod toggle;
 mod tree;
 
+pub use crate::theme::Tone;
 pub use accordion::Accordion;
 pub use badge::{Badge, Breadcrumb, Chip};
-pub use button::{Button, ButtonKind};
+pub use button::{Button, ButtonKind, ButtonSize};
 pub use combo_box::ComboBox;
 pub use dialog::{Dialog, alert, confirm, prompt};
 pub use events::*;
@@ -163,6 +186,10 @@ macro_rules! handle {
             pub fn area(&self) -> ::core::option::Option<::ratatui_core::layout::Rect> {
                 $crate::mouse::area_of(&*self.0)
             }
+            /// Whether the mouse pointer is over it.
+            pub fn is_hovered(&self) -> bool {
+                $crate::mouse::is_hovered(&*self.0)
+            }
         }
 
         impl ::core::fmt::Debug for $name {
@@ -236,4 +263,128 @@ pub(crate) fn wheel(event: &Event) -> Option<i32> {
 /// Display width of `text` in cells.
 pub(crate) fn width(text: &str) -> u16 {
     u16::try_from(unicode_width::UnicodeWidthStr::width(text)).unwrap_or(u16::MAX)
+}
+
+/// Paint a button-shaped fill of `label` across `area`: one row, or with
+/// half-block caps above and below when `area` is three rows tall. A fill
+/// without a background (a resting ghost) paints only the label.
+pub(crate) fn paint_button(
+    buf: &mut ratatui_core::buffer::Buffer,
+    area: ratatui_core::layout::Rect,
+    label: &str,
+    style: ratatui::style::Style,
+    theme: &crate::theme::Theme,
+) {
+    use ratatui::{layout::Alignment, style::Style, text::Line, widgets::Widget};
+    use ratatui_core::layout::Rect;
+    if area.is_empty() {
+        return;
+    }
+    let tall = area.height >= 3;
+    let middle = Rect::new(area.x, area.y + u16::from(tall), area.width, 1);
+    if tall && let Some(fill) = style.bg {
+        let [top, bottom] = theme.symbols.caps;
+        let caps = Style::new().fg(fill);
+        let row = |symbol: &str| Line::styled(symbol.repeat(usize::from(area.width)), caps);
+        row(top).render(Rect { height: 1, ..area }, buf);
+        row(bottom).render(Rect::new(area.x, area.y + 2, area.width, 1), buf);
+    }
+    buf.set_style(middle, style);
+    Line::styled(label, style)
+        .alignment(Alignment::Center)
+        .render(middle, buf);
+}
+
+/// `area` a cell in from either side, where the text of a well goes.
+pub(crate) fn pad(area: ratatui_core::layout::Rect) -> ratatui_core::layout::Rect {
+    if area.width > 2 {
+        ratatui_core::layout::Rect {
+            x: area.x + 1,
+            width: area.width - 2,
+            ..area
+        }
+    } else {
+        area
+    }
+}
+
+/// The style of a row in a list-like well in state `well`: the cursor row
+/// lifts, the row under the pointer lifts a little.
+pub(crate) fn row_style(
+    theme: &crate::theme::Theme,
+    well: crate::theme::Interaction,
+    cursor: bool,
+    hovered: bool,
+) -> ratatui::style::Style {
+    if well.disabled {
+        theme.well(well)
+    } else if cursor {
+        theme.row(well)
+    } else if hovered {
+        theme.well(well).patch(theme.row_hover(well))
+    } else {
+        theme.well(well)
+    }
+}
+
+/// The marker cell at the start of a row: the highlight symbol on the
+/// cursor row of a focused list, blank otherwise.
+pub(crate) fn row_marker(theme: &crate::theme::Theme, show: bool) -> ratatui::text::Span<'static> {
+    let symbol = theme.symbols.highlight;
+    if show {
+        ratatui::text::Span::styled(symbol, theme.accent())
+    } else {
+        ratatui::text::Span::raw(" ".repeat(usize::from(width(symbol))))
+    }
+}
+
+/// The row of `area` under the pointer, if `component` is hovered.
+pub(crate) fn hovered_row<C: ?Sized>(
+    component: &C,
+    area: ratatui_core::layout::Rect,
+) -> Option<u16> {
+    let position = crate::mouse::hover_position(component)?;
+    area.contains(position).then(|| position.y - area.y)
+}
+
+/// Draw a vertical scrollbar at the right edge of `area`.
+pub(crate) fn scrollbar(
+    buf: &mut ratatui_core::buffer::Buffer,
+    area: ratatui_core::layout::Rect,
+    theme: &crate::theme::Theme,
+    content: usize,
+    position: usize,
+    viewport: usize,
+) {
+    use ratatui::widgets::{Scrollbar, ScrollbarOrientation, ScrollbarState, StatefulWidget};
+    let mut state = ScrollbarState::new(content)
+        .position(position)
+        .viewport_content_length(viewport);
+    Scrollbar::new(ScrollbarOrientation::VerticalRight)
+        .begin_symbol(None)
+        .end_symbol(None)
+        .track_symbol(Some(theme.symbols.scrollbar[0]))
+        .thumb_symbol(theme.symbols.scrollbar[1])
+        .track_style(theme.scrollbar())
+        .thumb_style(theme.scrollbar_thumb())
+        .render(area, buf, &mut state);
+}
+
+/// `label` as a pill: half-block ends in the fill color around ` label `.
+/// Without a fill, the ends are blank.
+pub(crate) fn pill(
+    theme: &crate::theme::Theme,
+    label: &str,
+    style: ratatui::style::Style,
+) -> Vec<ratatui::text::Span<'static>> {
+    use ratatui::{style::Style, text::Span};
+    let [left, right] = theme.symbols.ends;
+    let (left, right) = match style.bg {
+        Some(fill) => (
+            Span::styled(left, Style::new().fg(fill)),
+            Span::styled(right, Style::new().fg(fill)),
+        ),
+        None => (Span::raw(" "), Span::raw(" ")),
+    };
+    vec![left, Span::styled(format!(" {label} "), style), right]
 }

@@ -3,6 +3,7 @@ use eventful_ratatui::{
     overlay::{Placement, overlay},
     prelude::*,
     testing::Harness,
+    theme::{Fill, Interaction},
 };
 use std::{cell::RefCell, rc::Rc, time::Duration};
 
@@ -229,15 +230,17 @@ fn a_modal_dims_and_blocks_what_is_below() {
         .placement(Placement::Center)
         .modal()
         .open();
+    let screen = theme::current().palette.foreground;
     ui.render();
+    // What is below blends toward the background.
     let below = &ui.buffer()[(1, 3)];
-    assert!(below.modifier.contains(Modifier::DIM), "{below:?}");
+    assert_ne!(below.fg, screen, "{below:?}");
     ui.click(1, 3);
     assert!(dialog.is_open(), "a click outside does not close it");
     assert!(!focus::is_focused(&*c), "nor reach what is below");
     drop(dialog);
     ui.render();
-    assert!(!ui.buffer()[(1, 3)].modifier.contains(Modifier::DIM));
+    assert_eq!(ui.buffer()[(1, 3)].fg, screen);
 }
 
 #[test]
@@ -310,4 +313,47 @@ fn timers_wake_the_loop() {
     let input = futures::stream::pending();
     futures::executor::block_on(Tui::new().run_with(&mut terminal, input, &root)).unwrap();
     assert_eq!(root.0.get(), 2);
+}
+
+#[test]
+fn hover_follows_the_pointer_and_redraws() {
+    let ok = Button::new("OK");
+    let cancel = Button::new("Cancel");
+    let mut ui = Harness::new(
+        Stack::horizontal()
+            .spacing(1)
+            .fit(ok.clone())
+            .fit(cancel.clone()),
+        20,
+        1,
+    );
+    let theme = theme::current();
+    let rest = theme.fill(Fill::Secondary, Interaction::default());
+    let hot = theme.fill(Fill::Secondary, Interaction::default().hovered(true));
+    assert_eq!(ui.buffer()[(0, 0)].bg, rest.bg.unwrap());
+    let before = ui.renders();
+    ui.hover(1, 0);
+    assert!(ui.renders() > before, "a hover change redraws");
+    assert!(ok.is_hovered(), "the button under the pointer");
+    assert_eq!(ui.buffer()[(0, 0)].bg, hot.bg.unwrap());
+    let before = ui.renders();
+    ui.hover(2, 0);
+    assert_eq!(ui.renders(), before, "moving within it changes nothing");
+    ui.hover(8, 0);
+    assert_eq!(ui.buffer()[(0, 0)].bg, rest.bg.unwrap());
+    assert_eq!(ui.buffer()[(8, 0)].bg, hot.bg.unwrap());
+}
+
+#[test]
+fn modals_hide_what_is_below_from_the_pointer() {
+    let below = Button::new("Below");
+    let mut ui = Harness::new(Stack::vertical().fit(below.clone()), 30, 8);
+    ui.hover(1, 0);
+    assert!(below.is_hovered());
+    let _dialog = overlay(Label::new("modal"))
+        .placement(Placement::Center)
+        .modal()
+        .open();
+    ui.render();
+    assert!(!below.is_hovered(), "the modal covers it");
 }

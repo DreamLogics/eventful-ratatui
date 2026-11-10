@@ -1,5 +1,9 @@
 //! Tier-3 components: data, editing and layout.
-use eventful_ratatui::{prelude::*, testing::Harness};
+use eventful_ratatui::{
+    prelude::*,
+    testing::Harness,
+    theme::{Fill, Interaction},
+};
 
 #[test]
 fn sliders_step_clamp_and_follow_the_mouse() {
@@ -45,7 +49,7 @@ fn fields_show_help_or_the_inputs_error() {
     });
     let field = Field::input("Port", port.clone()).help("1–65535");
     let mut ui = Harness::new(field.clone(), 16, 3);
-    assert_eq!(ui.lines(), ["Port", "80", "1–65535"]);
+    assert_eq!(ui.lines(), ["Port", " 80", "1–65535"]);
     ui.key("tab").type_text("x");
     assert_eq!(ui.lines()[2], "not a port");
     assert_eq!(field.preferred_size(Size::new(20, 20)).height, 3);
@@ -53,8 +57,8 @@ fn fields_show_help_or_the_inputs_error() {
 
 #[test]
 fn badges_chips_and_breadcrumbs() {
-    let ui = Harness::new(Badge::new("3").kind(ToastKind::Error), 5, 1);
-    assert_eq!(ui.lines(), [" 3"]);
+    let ui = Harness::new(Badge::new("3").tone(Tone::Error), 5, 1);
+    assert_eq!(ui.lines(), ["▐ 3 ▌"]);
     let chip = Chip::new("rust");
     let mut ui = Harness::new(chip.clone(), 10, 1);
     ui.click(1, 0);
@@ -68,7 +72,8 @@ fn badges_chips_and_breadcrumbs() {
     ui.key("tab").key("left").key("left");
     // Keys move a highlight over the clickable items; no shard runs here to
     // observe `triggered`, so check the rendering.
-    assert_eq!(ui.buffer()[(0, 0)].bg, theme::current().focused.bg.unwrap());
+    let focused = theme::current().fill(Fill::Ghost, Interaction::default().focused(true));
+    assert_eq!(ui.buffer()[(0, 0)].bg, focused.bg.unwrap());
 }
 
 #[test]
@@ -90,11 +95,11 @@ fn accordions_toggle_sections() {
         .section("Advanced", Label::new("advanced settings"))
         .exclusive();
     let mut ui = Harness::new(accordion.clone(), 24, 4);
-    assert_eq!(ui.lines()[..2], ["▸ General", "▸ Advanced"]);
+    assert_eq!(ui.lines()[..2], [" ▸ General", " ▸ Advanced"]);
     ui.key("tab").key("enter");
     assert_eq!(
         ui.lines(),
-        ["▾ General", "  general settings", "", "▸ Advanced"],
+        [" ▾ General", "   general settings", "", " ▸ Advanced"],
         "the open section fills the spare rows"
     );
     ui.key("down").key("space");
@@ -160,7 +165,7 @@ fn trees_expand_collapse_and_navigate() {
     let mut ui = Harness::new(tree.clone(), 20, 6);
     assert_eq!(
         ui.lines()[..4],
-        ["▾ src", "    main.rs", "  ▸ ui", "  README.md"]
+        [" ▾ src", "     main.rs", "   ▸ ui", "   README.md"]
     );
     ui.key("tab").keys(&["down", "down", "down"]);
     assert_eq!(tree.selection().as_deref(), Some("src/ui"));
@@ -178,7 +183,7 @@ fn trees_expand_collapse_and_navigate() {
     assert!(!tree.is_expanded("src/ui"));
     ui.click(0, 0);
     assert!(!tree.is_expanded("src"), "a click on the arrow toggles");
-    assert_eq!(ui.lines()[..2], ["▸ src", "  README.md"]);
+    assert_eq!(ui.lines()[..2], [" ▸ src", "   README.md"]);
     tree.select("src/ui/mod.rs");
     ui.render();
     assert!(
@@ -252,9 +257,10 @@ fn text_areas_keep_the_goal_column_and_scroll() {
         (2, 14),
         "the goal column survives a short line"
     );
-    assert_eq!(ui.cursor(), Some(Position::new(11, 2)));
+    // A cell of padding on either side of the text.
+    assert_eq!(ui.cursor(), Some(Position::new(10, 2)));
     ui.keys(&["down", "down", "down"]);
-    assert_eq!(ui.lines()[2], "6", "scrolled down: {:?}", ui.lines());
+    assert_eq!(ui.lines()[2], " 6", "scrolled down: {:?}", ui.lines());
     ui.click(0, 0);
     assert_eq!(area.cursor(), (3, 0));
 }
@@ -297,5 +303,5 @@ fn text_areas_leave_tab_to_focus_unless_asked() {
 fn line_numbers_take_a_gutter() {
     let area = TextArea::new().line_numbers().value("a\nb");
     let ui = Harness::new(area, 8, 2);
-    assert_eq!(ui.lines(), ["1 a", "2 b"]);
+    assert_eq!(ui.lines(), [" 1 a", " 2 b"]);
 }

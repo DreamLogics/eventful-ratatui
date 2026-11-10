@@ -7,7 +7,7 @@ use crate::{
 use crossterm::event::Event;
 use ratatui::{
     style::Style,
-    text::Line,
+    text::{Line, Span},
     widgets::{Block, Paragraph, Widget, Wrap},
 };
 use ratatui_core::{
@@ -114,6 +114,11 @@ thread_local! {
 /// Widest a toast gets.
 const WIDTH: u16 = 40;
 
+/// Cells of a toast's text, with its marker.
+fn message_width(toast: &Toast) -> u16 {
+    super::width(&toast.message) + 2
+}
+
 /// Renders the stack of toasts.
 struct Toaster;
 
@@ -121,10 +126,10 @@ impl Toaster {
     fn style(kind: ToastKind) -> Style {
         let theme = theme::current();
         match kind {
-            ToastKind::Info => theme.info,
-            ToastKind::Success => theme.success,
-            ToastKind::Warning => theme.warning,
-            ToastKind::Error => theme.error,
+            ToastKind::Info => theme.info(),
+            ToastKind::Success => theme.success(),
+            ToastKind::Warning => theme.warning(),
+            ToastKind::Error => theme.error(),
         }
     }
     /// Height of each toast's box for an inner `width`.
@@ -132,7 +137,7 @@ impl Toaster {
         TOASTS.with_borrow(|t| {
             t.entries
                 .iter()
-                .map(|(toast, _)| (super::width(&toast.message).div_ceil(width.max(1))).max(1) + 2)
+                .map(|(toast, _)| (message_width(toast).div_ceil(width.max(1))).max(1) + 2)
                 .collect()
         })
     }
@@ -171,15 +176,18 @@ impl Component for Toaster {
             };
             let rect = Rect::new(area.x, top, area.width, height);
             let style = Self::style(toast.kind);
-            Paragraph::new(Line::styled(toast.message.as_str(), theme.text))
-                .wrap(Wrap { trim: true })
-                .block(
-                    Block::bordered()
-                        .border_type(theme.border_type)
-                        .border_style(style)
-                        .padding(ratatui::widgets::Padding::horizontal(1)),
-                )
-                .render(rect, buf);
+            Paragraph::new(Line::from(vec![
+                Span::styled("● ", style),
+                Span::styled(toast.message.as_str(), theme.text()),
+            ]))
+            .wrap(Wrap { trim: true })
+            .block(
+                Block::bordered()
+                    .border_type(theme.border_type)
+                    .border_style(style)
+                    .padding(ratatui::widgets::Padding::horizontal(1)),
+            )
+            .render(rect, buf);
             bottom = top;
         }
     }
@@ -215,7 +223,7 @@ impl Component for Toaster {
         let widest = TOASTS.with_borrow(|t| {
             t.entries
                 .iter()
-                .map(|(toast, _)| super::width(&toast.message))
+                .map(|(toast, _)| message_width(toast))
                 .max()
                 .unwrap_or(0)
         });
