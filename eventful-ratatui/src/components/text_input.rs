@@ -427,7 +427,7 @@ impl Component for State {
             ..area
         };
         // A well, with a cell of padding on either side of the text.
-        buf.set_style(area, theme.well(state));
+        super::fill(buf, area, theme.well(state));
         let area = super::pad(area);
         let width = usize::from(area.width);
         if width == 0 || area.height == 0 {

@@ -265,7 +265,7 @@ impl Component for SpinState {
             height: area.height.min(1),
             ..area
         };
-        buf.set_style(row, style);
+        super::fill(buf, row, style);
         let width = usize::from(label_width(self) - 1);
         let arrow = if state.is_active() {
             theme.text()

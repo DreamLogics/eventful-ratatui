@@ -285,7 +285,7 @@ impl Component for State {
         self.offset.set(offset);
         // Large wells lift on focus only; rows show the hover.
         let well = Interaction::of(self).hovered(false);
-        buf.set_style(area, theme.well(well));
+        super::fill(buf, area, theme.well(well));
         let hovered = super::hovered_row(self, area).map(|row| offset + usize::from(row));
         let roots = self.roots.borrow();
         for (y, row) in rows.iter().skip(offset).take(height).enumerate() {

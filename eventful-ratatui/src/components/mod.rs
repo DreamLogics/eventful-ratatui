@@ -289,7 +289,7 @@ pub(crate) fn paint_button(
         row(top).render(Rect { height: 1, ..area }, buf);
         row(bottom).render(Rect::new(area.x, area.y + 2, area.width, 1), buf);
     }
-    buf.set_style(middle, style);
+    fill(buf, middle, style);
     Line::styled(label, style)
         .alignment(Alignment::Center)
         .render(middle, buf);
@@ -387,4 +387,20 @@ pub(crate) fn pill(
         None => (Span::raw(" "), Span::raw(" ")),
     };
     vec![left, Span::styled(format!(" {label} "), style), right]
+}
+
+/// Paint `area` as a well or fill: blank cells in `style`, so nothing drawn
+/// below shows through the text.
+pub(crate) fn fill(
+    buf: &mut ratatui_core::buffer::Buffer,
+    area: ratatui_core::layout::Rect,
+    style: ratatui::style::Style,
+) {
+    let area = area.intersection(buf.area);
+    for y in area.top()..area.bottom() {
+        for x in area.left()..area.right() {
+            buf[(x, y)].set_symbol(" ");
+        }
+    }
+    buf.set_style(area, style);
 }

@@ -56,7 +56,7 @@ impl Select {
         }))
     }
     /// Start with `index` selected.
-    pub fn selected(self, index: usize) -> Self {
+    pub fn with_selection(self, index: usize) -> Self {
         self.set_selection(Some(index));
         self
     }
@@ -166,7 +166,7 @@ impl Component for State {
         let state = Interaction::of(self).disabled(!self.enabled.get());
         let style = theme.well(state);
         let row = Rect::new(area.x, area.y, area.width, 1.min(area.height));
-        buf.set_style(row, style);
+        super::fill(buf, row, style);
         let (text, text_style) = match self
             .selected
             .get()

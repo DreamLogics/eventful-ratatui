@@ -91,7 +91,7 @@ impl List {
         self
     }
     /// Start with `index` selected.
-    pub fn selected(self, index: usize) -> Self {
+    pub fn with_selection(self, index: usize) -> Self {
         self.set_selection(Some(index));
         self
     }
@@ -321,7 +321,7 @@ impl Component for State {
         let well = Interaction::of(self)
             .hovered(false)
             .disabled(!self.enabled.get());
-        buf.set_style(area, theme.well(well));
+        super::fill(buf, area, theme.well(well));
         let hovered = super::hovered_row(self, area).map(|row| offset + usize::from(row));
         let marked = self.marked.borrow();
         for (row, index) in (offset..len.min(offset + height)).enumerate() {

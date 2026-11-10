@@ -465,7 +465,7 @@ impl Component for State {
     fn render(&self, area: Rect, buf: &mut Buffer) {
         let theme = theme::current();
         let state = Interaction::of(self).hovered(false);
-        buf.set_style(area, theme.well(state));
+        super::fill(buf, area, theme.well(state));
         let area = super::pad(area);
         let height = usize::from(area.height);
         self.height.set(height);

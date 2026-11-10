@@ -280,7 +280,7 @@ impl Component for State {
         }
         // Large wells lift on focus only; rows show the hover.
         let well = Interaction::of(self).hovered(false);
-        buf.set_style(area, theme.well(well));
+        super::fill(buf, area, theme.well(well));
         let body_height = usize::from(area.height - 1);
         self.height.set(body_height);
         let order = self.order.borrow();

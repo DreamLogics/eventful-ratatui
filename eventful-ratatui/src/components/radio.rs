@@ -54,7 +54,7 @@ impl RadioGroup {
         self
     }
     /// Start with `index` selected.
-    pub fn selected(self, index: usize) -> Self {
+    pub fn with_selection(self, index: usize) -> Self {
         self.0.selected.set(Some(index));
         self
     }

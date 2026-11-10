@@ -1,15 +1,12 @@
 //! Every component on one screen. Run with `cargo run -p gallery`.
 //!
 //! Tab moves the focus, Ctrl+PageUp/PageDown switch pages, Ctrl+P opens the
-//! command palette, Ctrl+T switches the theme, the mouse works everywhere, and
+//! command palette, the list at the bottom right picks the theme, the mouse works everywhere, and
 //! Ctrl+C quits. What you do is logged on the Lists page.
 use eventful_ratatui::prelude::*;
 use eventful_ratatui::theme::{Theme, ThemeFile};
 use eventful_rs::*;
-use std::{
-    cell::{Cell, RefCell},
-    future::Future,
-};
+use std::{cell::RefCell, future::Future, path::PathBuf};
 
 declare_shard!(Ui, runtime = main);
 
@@ -27,9 +24,13 @@ struct Gallery {
     overlay_buttons: [Button; 6],
     menu_bar: MenuBar,
     editor: TextArea,
-    /// The themes Ctrl+T cycles through, once loaded, and which one is on.
-    themes: RefCell<Vec<Theme>>,
-    theme: Cell<usize>,
+    /// Picks the theme: the built-in one, then each theme file.
+    theme_picker: Select,
+    /// The theme files, in the order the picker lists them after the
+    /// built-in theme.
+    theme_files: Vec<PathBuf>,
+    /// The theme the loop started with, once something else was picked.
+    start_theme: RefCell<Option<Theme>>,
     keys: Keymap<Gallery>,
 }
 
@@ -115,7 +116,7 @@ impl Gallery {
                 Constraint::Length(1),
                 RadioGroup::new(["Small", "Medium", "Large"])
                     .horizontal()
-                    .selected(1),
+                    .with_selection(1),
             )
             .child(
                 Constraint::Length(1),
@@ -301,8 +302,8 @@ impl Gallery {
             .hint("tab", "focus")
             .hint("ctrl+pgup/pgdn", "pages")
             .hint("ctrl+p", "commands")
-            .hint("ctrl+t", "theme")
             .hint("ctrl+c", "quit");
+        let theme_files = theme_files();
         Self {
             tabs,
             hints,
@@ -316,11 +317,14 @@ impl Gallery {
             overlay_buttons,
             menu_bar,
             editor,
-            themes: RefCell::default(),
-            theme: Cell::new(0),
+            theme_picker: Select::new(
+                std::iter::once("Terminal".to_owned()).chain(theme_files.iter().map(|p| label(p))),
+            )
+            .with_selection(0),
+            theme_files,
+            start_theme: RefCell::default(),
             keys: Keymap::new()
                 .bind("ctrl+c", |_| quit())
-                .bind("ctrl+t", Gallery::next_theme)
                 .bind("ctrl+p", |g: &Gallery| g.demo(Demo::Palette)),
             events: Default::default(),
         }
@@ -407,46 +411,31 @@ impl Gallery {
         self.log.push(format!("menu bar: {id}"));
     }
 
-    /// The built-in theme the loop started with, then every theme file
-    /// shipped with the crate, in the terminal's appearance.
-    fn load_themes(&self) -> Vec<Theme> {
-        let start = (*theme::current()).clone();
-        let appearance = start.appearance();
-        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../eventful-ratatui/themes");
-        let mut paths: Vec<_> = std::fs::read_dir(dir)
-            .into_iter()
-            .flatten()
-            .flatten()
-            .map(|entry| entry.path())
-            .filter(|path| path.extension().is_some_and(|e| e == "crod"))
-            .collect();
-        paths.sort();
-        let mut themes = vec![start];
-        for path in paths {
-            match ThemeFile::open(&path).map(|file| file.load(appearance)) {
-                Ok(Ok(theme)) => themes.push(theme),
-                Ok(Err(err)) => self.log.push(Line::from(err.to_string()).red()),
-                Err(err) => self
-                    .log
-                    .push(Line::from(format!("{}: {err}", path.display())).red()),
+    /// The picker's choice: the built-in theme, or a theme file in the
+    /// appearance of the terminal.
+    fn pick_theme(&self, index: usize) {
+        // The loop started with the built-in theme, matching the terminal.
+        let start = self
+            .start_theme
+            .borrow_mut()
+            .get_or_insert_with(|| (*theme::current()).clone())
+            .clone();
+        let theme = match index.checked_sub(1).map(|i| &self.theme_files[i]) {
+            None => Ok(start),
+            Some(path) => ThemeFile::open(path)
+                .map_err(|err| format!("{}: {err}", path.display()))
+                .and_then(|file| file.load(start.appearance()).map_err(|err| err.to_string())),
+        };
+        match theme {
+            Ok(theme) => {
+                self.log.push(format!("theme: {}", theme.name));
+                theme::set(theme);
+            }
+            Err(err) => {
+                self.log.push(Line::from(err.clone()).red());
+                Toast::error(err).show();
             }
         }
-        themes
-    }
-
-    fn next_theme(&self) {
-        if self.themes.borrow().is_empty() {
-            let themes = self.load_themes();
-            *self.themes.borrow_mut() = themes;
-        }
-        let themes = self.themes.borrow();
-        let next = (self.theme.get() + 1) % themes.len();
-        self.theme.set(next);
-        let theme = themes[next].clone();
-        drop(themes);
-        self.log.push(format!("theme: {}", theme.name));
-        Toast::info(format!("Theme: {}", theme.name)).show();
-        theme::set(theme);
     }
 
     fn less(&self) {
@@ -455,6 +444,35 @@ impl Gallery {
     fn more(&self) {
         self.nudge(0.1);
     }
+}
+
+/// The theme files shipped with the crate, sorted.
+fn theme_files() -> Vec<PathBuf> {
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../eventful-ratatui/themes");
+    let mut paths: Vec<_> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|e| e == "crod"))
+        .collect();
+    paths.sort();
+    paths
+}
+
+/// A theme file's name for the picker: `tokyo-night.crod` is "Tokyo Night".
+fn label(path: &std::path::Path) -> String {
+    let stem = path.file_stem().unwrap_or_default().to_string_lossy();
+    stem.split('-')
+        .map(|word| {
+            let mut chars = word.chars();
+            chars
+                .next()
+                .map(|c| c.to_uppercase().chain(chars).collect())
+                .unwrap_or_default()
+        })
+        .collect::<Vec<String>>()
+        .join(" ")
 }
 
 /// `label` in a fixed-width column, then `input`.
@@ -469,7 +487,11 @@ impl Component for Gallery {
         let [body, hints] =
             Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(area);
         self.tabs.render(body, buf);
+        // The key hints, then the theme picker at the right.
+        let [hints, picker] =
+            Layout::horizontal([Constraint::Fill(1), Constraint::Length(20)]).areas(hints);
         self.hints.render(hints, buf);
+        self.theme_picker.render(picker, buf);
     }
     fn on_input(&self, event: &InputEvent) -> Handled {
         self.keys.dispatch(self, event)
@@ -508,6 +530,12 @@ async fn main() -> eventful_ratatui::Result<()> {
         .clicked()
         .with_receiver(&gallery)
         .connect(Gallery::more)
+        .scoped();
+    let _theme = gallery
+        .theme_picker
+        .selected()
+        .with_receiver(&gallery)
+        .connect(Gallery::pick_theme)
         .scoped();
     let _menu = gallery
         .menu_bar

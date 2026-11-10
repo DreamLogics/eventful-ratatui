@@ -142,7 +142,7 @@ fn menus_pick_by_mouse() {
 
 #[test]
 fn selects_open_a_list_and_change_value() {
-    let size = Select::new(["Small", "Medium", "Large"]).selected(0);
+    let size = Select::new(["Small", "Medium", "Large"]).with_selection(0);
     let mut ui = Harness::new(
         Stack::vertical().child(Constraint::Length(1), size.clone()),
         20,

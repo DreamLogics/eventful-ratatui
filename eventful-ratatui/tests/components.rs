@@ -58,7 +58,7 @@ fn checkboxes_and_switches_toggle() {
 
 #[test]
 fn radio_groups_select_with_arrows_and_clicks() {
-    let size = RadioGroup::new(["Small", "Medium", "Large"]).selected(0);
+    let size = RadioGroup::new(["Small", "Medium", "Large"]).with_selection(0);
     let mut ui = Harness::new(size.clone(), 12, 3);
     assert_eq!(ui.lines(), [" ● Small", " ○ Medium", " ○ Large"]);
     ui.key("tab").key("down").key("down").key("down");
