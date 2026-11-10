@@ -29,10 +29,16 @@ serde.workspace = true
 # Asking the terminal for its colors.
 rustix.workspace = true
 
+# Where `crate:eventful-ratatui` schema references in theme files point.
+[package.metadata.crol]
+schema = "themes/theme.schema.crol"
+
 [features]
 default = ["components"]
 ## Ready-made components: buttons, inputs, lists, tabs, dialogs and more.
 components = ["dep:unicode-segmentation", "dep:unicode-width"]
 
 [dev-dependencies]
+# The schema of theme files is derived in a test.
+crol = { workspace = true, features = ["derive"] }
 trybuild = "1"

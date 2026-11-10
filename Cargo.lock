@@ -237,11 +237,24 @@ version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5529e8b71686a8987678f331061e66b9f30d212d3ef7ae5caa5fc962ca956747"
 dependencies = [
+ "crol-derive",
  "crol-eval",
  "crol-syntax",
  "indexmap",
  "rustc-hash",
  "serde",
+]
+
+[[package]]
+name = "crol-derive"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "92d1a7e16449adde4cbc279a6af5955f86cd906435a8dd038a8d2a13767cff85"
+dependencies = [
+ "crol-syntax",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]

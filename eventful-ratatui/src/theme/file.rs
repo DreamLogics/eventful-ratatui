@@ -3,7 +3,6 @@
 use super::{Appearance, Palette, Theme};
 use crol::{CrolComposer, CrolConfig, CrolLayer, CrolVariants};
 use ratatui::style::Color;
-use serde::Deserialize;
 use std::{fmt, io, path::Path, str::FromStr};
 
 /// A theme in a [CROL](https://crates.io/crates/crol) data file (`.crod`),
@@ -55,7 +54,7 @@ impl ThemeFile {
         let variants = CrolVariants::new().add_grouped(["dark", "light"]);
         // Data mode: variants need layered data, so the file is one layer.
         let document = format!("{}.crod", self.name.trim_end_matches(".crod"));
-        let file: File = CrolComposer::with_cfg(CrolConfig {
+        let file: format::Theme = CrolComposer::with_cfg(CrolConfig {
             variants,
             ..Default::default()
         })
@@ -96,52 +95,83 @@ impl fmt::Display for ThemeError {
 
 impl std::error::Error for ThemeError {}
 
-/// A theme file's root.
-#[derive(Deserialize)]
-struct File {
-    name: String,
-    palette: FilePalette,
-}
+/// The format of theme files, as serde reads it and as the schema describes
+/// it.
+mod format {
+    use super::{Palette as Colors, parse};
+    use serde::Deserialize;
 
-/// Declare the palette as the file spells it, colors as text, and its
-/// conversion to a [`Palette`].
-macro_rules! file_palette {
-    ($($field:ident),* $(,)?) => {
-        #[derive(Deserialize)]
-        struct FilePalette {
-            $($field: String,)*
-        }
+    /// A theme for eventful-ratatui. Write the values shared by both variants
+    /// at the root, and what differs in `<dark> { … }` and `<light> { … }`.
+    #[derive(Deserialize)]
+    #[cfg_attr(test, derive(crol::Schema))]
+    pub(super) struct Theme {
+        /// A display name, for a theme picker.
+        pub(super) name: String,
+        /// The base colors; every state color is derived from these.
+        pub(super) palette: Palette,
+    }
 
-        impl FilePalette {
-            fn into_palette(self) -> Result<Palette, String> {
-                Ok(Palette {
-                    $($field: parse(stringify!($field), &self.$field)?,)*
-                })
+    /// Declare the palette as the file spells it, colors as text, and its
+    /// conversion.
+    macro_rules! palette {
+        ($($(#[doc = $doc:literal])* $field:ident,)*) => {
+            /// The base colors of a theme, each `"#rrggbb"` or a color name.
+            #[derive(Deserialize)]
+            #[cfg_attr(test, derive(crol::Schema))]
+            pub(super) struct Palette {
+                $($(#[doc = $doc])* $field: String,)*
             }
-        }
-    };
-}
 
-file_palette!(
-    background,
-    surface,
-    field,
-    foreground,
-    muted,
-    primary,
-    primary_foreground,
-    secondary,
-    secondary_foreground,
-    accent,
-    destructive,
-    destructive_foreground,
-    success,
-    warning,
-    info,
-    border,
-    ring,
-    selection,
-);
+            impl Palette {
+                pub(super) fn into_palette(self) -> Result<Colors, String> {
+                    Ok(Colors {
+                        $($field: parse(stringify!($field), &self.$field)?,)*
+                    })
+                }
+            }
+        };
+    }
+
+    palette! {
+        /// The screen, behind everything.
+        background,
+        /// Raised layers: dialogs, menus, toasts.
+        surface,
+        /// Wells that controls sit in: inputs, lists, tracks.
+        field,
+        /// Body text.
+        foreground,
+        /// Secondary text: hints, placeholders, captions.
+        muted,
+        /// The main accent: main buttons, the selected tab, progress.
+        primary,
+        /// Text on `primary`.
+        primary_foreground,
+        /// Quieter fills: ordinary buttons, chips.
+        secondary,
+        /// Text on `secondary`.
+        secondary_foreground,
+        /// A vivid signature color for occasional emphasis.
+        accent,
+        /// Destructive actions and errors.
+        destructive,
+        /// Text on `destructive`.
+        destructive_foreground,
+        /// Success.
+        success,
+        /// Warnings.
+        warning,
+        /// Neutral information.
+        info,
+        /// Borders and separators.
+        border,
+        /// The border of a container holding the focus.
+        ring,
+        /// The background of selected text.
+        selection,
+    }
+}
 
 /// A color as a theme file writes it: `#rrggbb` or a color name.
 fn parse(field: &str, text: &str) -> Result<Color, String> {
@@ -161,6 +191,41 @@ mod tests {
         success: "#33ff33", warning: "#ffff33", info: "#33ffff",
         border: "#666666", ring: &self.primary, selection: "#223366",
     "##;
+
+    /// The schema tools like `crol check` and the language server use for
+    /// theme files. Fails when it is out of date; `CROL_UPDATE_SCHEMA=1 cargo
+    /// test` updates it.
+    #[test]
+    fn the_schema_file_is_up_to_date() {
+        crol::schema::check_file::<format::Theme>("themes/theme.schema.crol").unwrap();
+    }
+
+    /// Every shipped theme file passes the schema without a variant and in
+    /// each one, as `crol check` and the language server see it.
+    #[test]
+    fn shipped_files_pass_the_schema() {
+        let schema = crol::schema::build::<format::Theme>();
+        for (name, source) in crate::theme::tests::FILES {
+            for variant in [None, Some("dark"), Some("light")] {
+                let mut composer = CrolComposer::with_cfg(CrolConfig {
+                    variants: CrolVariants::new().add_grouped(["dark", "light"]),
+                    ..Default::default()
+                })
+                .schema(schema.clone())
+                .load_layer(CrolLayer::from_sources(
+                    "theme",
+                    [(format!("{name}.crod"), source.to_owned())],
+                ));
+                if let Some(variant) = variant {
+                    composer = composer.with_variant(variant).unwrap();
+                }
+                let data = composer.compose_data().unwrap();
+                let diagnostics = crol::check(&data, &schema, None, &Default::default());
+                let messages: Vec<_> = diagnostics.into_iter().map(|d| d.message).collect();
+                assert_eq!(messages, Vec::<String>::new(), "{name} {variant:?}");
+            }
+        }
+    }
 
     #[test]
     fn variants_pick_the_palette() {

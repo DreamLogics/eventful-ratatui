@@ -1,55 +1,57 @@
+#![schema("crate:eventful-ratatui@0.1")]
 // Nord
 // Nord: cool, desaturated blues. The light variant puts Polar Night text on
 // Snow Storm, with the accents darkened to stay readable.
 // https://www.nordtheme.com/docs/colors-and-palettes
 //
 // Load with `ThemeFile::open`; the loop picks `<dark>` or `<light>` to match
-// the terminal background.
+// the terminal background. The root holds the dark palette, so the file is a
+// whole theme without a variant too; `<light>` replaces it.
 
 name: "Nord"
+palette: {
+    background: "#2e3440", // nord0
+    surface: "#353b49", // between nord0 and nord1
+    field: "#3b4252", // nord1
+    foreground: "#eceff4", // nord6
+    muted: "#d8dee9", // nord4
+    primary: "#88c0d0", // nord8
+    primary_foreground: "#2e3440",
+    secondary: "#4c566a", // nord3
+    secondary_foreground: "#eceff4",
+    accent: "#b48ead", // nord15
+    destructive: "#bf616a", // nord11
+    destructive_foreground: "#eceff4",
+    success: "#a3be8c", // nord14
+    warning: "#ebcb8b", // nord13
+    info: "#81a1c1", // nord9
+    border: "#707e9b", // off-palette: nord3 is too faint on nord0
+    ring: "#7babba",
+    selection: "#434c5e", // nord2
+}
 
 <dark> {
     name: "Nord",
-    palette: {
-        background: "#2e3440",  // nord0
-        surface: "#353b49",  // between nord0 and nord1
-        field: "#3b4252",  // nord1
-        foreground: "#eceff4",  // nord6
-        muted: "#d8dee9",  // nord4
-        primary: "#88c0d0",  // nord8
-        primary_foreground: "#2e3440",
-        secondary: "#4c566a",  // nord3
-        secondary_foreground: "#eceff4",
-        accent: "#b48ead",  // nord15
-        destructive: "#bf616a",  // nord11
-        destructive_foreground: "#eceff4",
-        success: "#a3be8c",  // nord14
-        warning: "#ebcb8b",  // nord13
-        info: "#81a1c1",  // nord9
-        border: "#707e9b",  // off-palette: nord3 is too faint on nord0
-        ring: "#7babba",
-        selection: "#434c5e",  // nord2
-    },
 }
 
 <light> {
     name: "Nord Light",
     palette: {
-        background: "#eceff4",  // nord6
-        surface: "#e5e9f0",  // nord5
-        field: "#d8dee9",  // nord4
-        foreground: "#2e3440",  // nord0
-        muted: "#4c566a",  // nord3
-        primary: "#4c6a92",  // nord10, darkened
+        background: "#eceff4", // nord6
+        surface: "#e5e9f0", // nord5
+        field: "#d8dee9", // nord4
+        foreground: "#2e3440", // nord0
+        muted: "#4c566a", // nord3
+        primary: "#4c6a92", // nord10, darkened
         primary_foreground: "#eceff4",
-        secondary: "#cdd4e0",  // between nord4 and nord3
+        secondary: "#cdd4e0", // between nord4 and nord3
         secondary_foreground: "#2e3440",
-        accent: "#8f6488",  // nord15, darkened
-        destructive: "#a3424c",  // nord11, darkened
+        accent: "#8f6488", // nord15, darkened
+        destructive: "#a3424c", // nord11, darkened
         destructive_foreground: "#eceff4",
-        success: "#5d7d43",  // nord14, darkened
-        warning: "#9a7024",  // nord13, darkened
-        info: "#4f7396",  // nord9, darkened
+        success: "#5d7d43", // nord14, darkened
+        warning: "#9a7024", // nord13, darkened
+        info: "#4f7396", // nord9, darkened
         border: "#8c96a8",
         ring: "#647ea1",
         selection: "#c8d3e4",

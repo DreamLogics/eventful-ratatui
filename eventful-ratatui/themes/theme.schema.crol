@@ -1,0 +1,104 @@
+#![schema("crate:crol@0.3")]
+
+Schema {
+    format: 1,
+    root: "eventful_ratatui::theme::file::format::Theme",
+    types: {
+        "eventful_ratatui::theme::file::format::Palette": Struct {
+            name: "Palette",
+            doc: "The base colors of a theme, each `\"#rrggbb\"` or a color name.",
+            source: ("eventful-ratatui/src/theme/file.rs", 136),
+            fields: {
+                background: {
+                    ty: String,
+                    doc: "The screen, behind everything.",
+                    ..,
+                },
+                surface: {
+                    ty: String,
+                    doc: "Raised layers: dialogs, menus, toasts.",
+                    ..,
+                },
+                field: {
+                    ty: String,
+                    doc: "Wells that controls sit in: inputs, lists, tracks.",
+                    ..,
+                },
+                foreground: { ty: String, doc: "Body text.", .. },
+                muted: {
+                    ty: String,
+                    doc: "Secondary text: hints, placeholders, captions.",
+                    ..,
+                },
+                primary: {
+                    ty: String,
+                    doc: "The main accent: main buttons, the selected tab, progress.",
+                    ..,
+                },
+                primary_foreground: {
+                    ty: String,
+                    doc: "Text on `primary`.",
+                    ..,
+                },
+                secondary: {
+                    ty: String,
+                    doc: "Quieter fills: ordinary buttons, chips.",
+                    ..,
+                },
+                secondary_foreground: {
+                    ty: String,
+                    doc: "Text on `secondary`.",
+                    ..,
+                },
+                accent: {
+                    ty: String,
+                    doc: "A vivid signature color for occasional emphasis.",
+                    ..,
+                },
+                destructive: {
+                    ty: String,
+                    doc: "Destructive actions and errors.",
+                    ..,
+                },
+                destructive_foreground: {
+                    ty: String,
+                    doc: "Text on `destructive`.",
+                    ..,
+                },
+                success: { ty: String, doc: "Success.", .. },
+                warning: { ty: String, doc: "Warnings.", .. },
+                info: { ty: String, doc: "Neutral information.", .. },
+                border: { ty: String, doc: "Borders and separators.", .. },
+                ring: {
+                    ty: String,
+                    doc: "The border of a container holding the focus.",
+                    ..,
+                },
+                selection: {
+                    ty: String,
+                    doc: "The background of selected text.",
+                    ..,
+                },
+            },
+            ..,
+        },
+        "eventful_ratatui::theme::file::format::Theme": Struct {
+            name: "Theme",
+            doc: "A theme for eventful-ratatui. Write the values shared by both variants\nat the root, and what differs in `<dark> { … }` and `<light> { … }`.",
+            source: ("eventful-ratatui/src/theme/file.rs", 107),
+            fields: {
+                name: {
+                    ty: String,
+                    doc: "A display name, for a theme picker.",
+                    ..,
+                },
+                palette: {
+                    ty: Named("eventful_ratatui::theme::file::format::Palette"),
+                    doc: "The base colors; every state color is derived from these.",
+                    ..,
+                },
+            },
+            ..,
+        },
+    },
+}

@@ -1,56 +1,58 @@
+#![schema("crate:eventful-ratatui@0.1")]
 // Catppuccin
 // Catppuccin: Mocha for dark terminals, Latte for light ones.
 // https://catppuccin.com/palette
 //
 // Load with `ThemeFile::open`; the loop picks `<dark>` or `<light>` to match
-// the terminal background.
+// the terminal background. The root holds the dark palette, so the file is a
+// whole theme without a variant too; `<light>` replaces it.
 
 name: "Catppuccin"
+palette: {
+    background: "#11111b", // crust
+    surface: "#161623", // between crust and base
+    field: "#1e1e2e", // base
+    foreground: "#cdd6f4", // text
+    muted: "#a6adc8", // subtext0
+    primary: "#89b4fa", // blue
+    primary_foreground: "#11111b",
+    secondary: "#313244", // surface0
+    secondary_foreground: "#cdd6f4",
+    accent: "#cba6f7", // mauve
+    destructive: "#f38ba8", // red
+    destructive_foreground: "#11111b",
+    success: "#a6e3a1", // green
+    warning: "#f9e2af", // yellow
+    info: "#74c7ec", // sapphire
+    border: "#6c7086", // overlay0
+    ring: "#779cd9",
+    selection: "#45475a", // surface1
+}
 
 <dark> {
     name: "Catppuccin Mocha",
-    palette: {
-        background: "#11111b",  // crust
-        surface: "#161623",  // between crust and base
-        field: "#1e1e2e",  // base
-        foreground: "#cdd6f4",  // text
-        muted: "#a6adc8",  // subtext0
-        primary: "#89b4fa",  // blue
-        primary_foreground: "#11111b",
-        secondary: "#313244",  // surface0
-        secondary_foreground: "#cdd6f4",
-        accent: "#cba6f7",  // mauve
-        destructive: "#f38ba8",  // red
-        destructive_foreground: "#11111b",
-        success: "#a6e3a1",  // green
-        warning: "#f9e2af",  // yellow
-        info: "#74c7ec",  // sapphire
-        border: "#6c7086",  // overlay0
-        ring: "#779cd9",
-        selection: "#45475a",  // surface1
-    },
 }
 
 <light> {
     name: "Catppuccin Latte",
     palette: {
-        background: "#eff1f5",  // base
-        surface: "#e6e9ef",  // mantle
-        field: "#dce0e8",  // crust
-        foreground: "#4c4f69",  // text
-        muted: "#5c5f77",  // subtext1: subtext0 is under 4.5:1 on base
-        primary: "#1e66f5",  // blue
-        primary_foreground: "#ffffff",  // white: base is under 4.5:1 on blue
-        secondary: "#ccd0da",  // surface0
+        background: "#eff1f5", // base
+        surface: "#e6e9ef", // mantle
+        field: "#dce0e8", // crust
+        foreground: "#4c4f69", // text
+        muted: "#5c5f77", // subtext1: subtext0 is under 4.5:1 on base
+        primary: "#1e66f5", // blue
+        primary_foreground: "#ffffff", // white: base is under 4.5:1 on blue
+        secondary: "#ccd0da", // surface0
         secondary_foreground: "#4c4f69",
-        accent: "#8839ef",  // mauve
-        destructive: "#d20f39",  // red
+        accent: "#8839ef", // mauve
+        destructive: "#d20f39", // red
         destructive_foreground: "#ffffff",
-        success: "#40a02b",  // green
-        warning: "#fe640b",  // peach: yellow is too faint on base
-        info: "#209fb5",  // sapphire
-        border: "#8c8fa1",  // overlay1
+        success: "#40a02b", // green
+        warning: "#fe640b", // peach: yellow is too faint on base
+        info: "#209fb5", // sapphire
+        border: "#8c8fa1", // overlay1
         ring: "#3d7bf5",
-        selection: "#bcc0cc",  // surface1
+        selection: "#bcc0cc", // surface1
     },
 }
