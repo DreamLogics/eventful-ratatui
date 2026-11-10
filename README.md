@@ -107,10 +107,10 @@ variant that matches the terminal's background:
 ```rust,no_run
 use eventful_ratatui::{prelude::*, theme::ThemeFile};
 
-# fn main() -> std::io::Result<()> {
-let tui = Tui::new().theme_file(ThemeFile::open("themes/catppuccin.crod")?);
-# Ok(())
-# }
+fn main() -> std::io::Result<()> {
+    let tui = Tui::new().theme_file(ThemeFile::open("themes/catppuccin.crod")?);
+    Ok(())
+}
 ```
 
 A theme file names the schema published with this crate, so `crol check` and
