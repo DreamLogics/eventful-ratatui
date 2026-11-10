@@ -13,7 +13,8 @@
 //! - [`theme`]: a palette from which focus, hover and disabled colors are
 //!   derived. The built-in theme is generated from the terminal's own 16
 //!   colors; other themes load from CROL files with `<dark>` and `<light>`
-//!   variants.
+//!   variants, and six of those are bundled, like
+//!   [`ThemeFile::one`](theme::ThemeFile::one).
 //! - [`run_tui`] and [`Tui`]: the loop; [`testing::Harness`] drives
 //!   components without a terminal.
 //!

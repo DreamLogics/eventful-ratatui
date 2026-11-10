@@ -1,0 +1,61 @@
+#![schema("crate:eventful-ratatui@0.1")]
+// One
+// One: One Dark for dark terminals, One Light for light ones.
+// The colors are Atom's One Dark and One Light syntax and UI themes (MIT,
+// Copyright (c) 2016 GitHub Inc., https://github.com/atom/atom); see
+// THIRD-PARTY-NOTICES.md. Zed's and VS Code's One themes derive from them.
+//
+// Load with `ThemeFile::one()`, or copy it and use `ThemeFile::open`; the
+// loop picks `<dark>` or `<light>` to match the terminal background. The root
+// holds the dark palette, so the file is a whole theme without a variant too;
+// `<light>` replaces it.
+
+name: "One"
+palette: {
+    background: "#21252b", // UI panels
+    surface: "#24282f", // between the panels and the editor
+    field: "#282c34", // editor background
+    foreground: "#abb2bf", // mono-1
+    muted: "#9da5b4", // UI text: mono-2 is under 4.5:1 on the panels
+    primary: "#61afef", // blue
+    primary_foreground: "#21252b",
+    secondary: "#333842",
+    secondary_foreground: "#abb2bf",
+    accent: "#c678dd", // purple
+    destructive: "#e06c75", // red
+    destructive_foreground: "#21252b",
+    success: "#98c379", // green
+    warning: "#e5c07b", // yellow
+    info: "#56b6c2", // cyan
+    border: "#5c6370", // mono-3
+    ring: "#528bff", // cursor
+    selection: "#3e4451", // selection
+}
+
+<dark> {
+    name: "One Dark",
+}
+
+<light> {
+    name: "One Light",
+    palette: {
+        background: "#fafafa", // editor background
+        surface: "#f2f2f3", // between the editor and the panels
+        field: "#eaeaeb", // UI panels
+        foreground: "#383a42", // mono-1
+        muted: "#696c77", // mono-2
+        primary: "#3a6ee0", // blue, darkened: white is under 4.5:1 on #4078f2
+        primary_foreground: "#ffffff",
+        secondary: "#dbdbdc", // UI borders
+        secondary_foreground: "#383a42",
+        accent: "#a626a4", // purple
+        destructive: "#e45649", // red
+        destructive_foreground: "#ffffff",
+        success: "#50a14f", // green
+        warning: "#c18401", // yellow
+        info: "#0184bc", // cyan
+        border: "#a0a1a7", // mono-3
+        ring: "#526fff", // cursor
+        selection: "#d0d1d6", // darker than the panels, where inputs sit
+    },
+}

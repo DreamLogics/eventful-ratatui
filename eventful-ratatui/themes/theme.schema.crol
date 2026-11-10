@@ -7,7 +7,7 @@ Schema {
         "eventful_ratatui::theme::file::format::Palette": Struct {
             name: "Palette",
             doc: "The base colors of a theme, each `\"#rrggbb\"` or a color name.",
-            source: ("eventful-ratatui/src/theme/file.rs", 193),
+            source: ("eventful-ratatui/src/theme/file.rs", 338),
             fields: {
                 background: {
                     ty: String,
@@ -85,7 +85,7 @@ Schema {
         "eventful_ratatui::theme::file::format::Theme": Struct {
             name: "Theme",
             doc: "A theme for eventful-ratatui. Write the values shared by both variants\nat the root, and what differs in `<dark> { … }` and `<light> { … }`.",
-            source: ("eventful-ratatui/src/theme/file.rs", 164),
+            source: ("eventful-ratatui/src/theme/file.rs", 309),
             fields: {
                 name: {
                     ty: String,

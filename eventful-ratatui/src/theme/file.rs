@@ -9,24 +9,31 @@ use std::{fmt, io, path::Path, str::FromStr};
 /// with a `<dark>` and a `<light>` variant. See [the module
 /// docs](super#theme-files) for the format.
 ///
-/// Opening a file only reads it; [`load`](Self::load) evaluates the variant
-/// for an appearance. Hand it to [`Tui::theme_file`](crate::Tui::theme_file)
-/// to load the variant matching the terminal.
+/// The themes this crate ships are bundled with the library:
+/// [`catppuccin`](Self::catppuccin), [`gruvbox`](Self::gruvbox),
+/// [`neutral`](Self::neutral), [`nord`](Self::nord), [`one`](Self::one) and
+/// [`tokyo_night`](Self::tokyo_night), or all of them from
+/// [`bundled`](Self::bundled). Your own themes come from a file with
+/// [`open`](Self::open), or from text with [`from_source`](Self::from_source).
+///
+/// Getting a theme file only reads its text; [`load`](Self::load) evaluates
+/// the variant for an appearance. Hand it to
+/// [`Tui::theme_file`](crate::Tui::theme_file) to load the variant matching
+/// the terminal.
 ///
 /// ```
 /// use eventful_ratatui::theme::{Appearance, ThemeFile};
 ///
-/// let path = concat!(env!("CARGO_MANIFEST_DIR"), "/themes/nord.crod");
-/// let file = ThemeFile::open(path)?;
-/// let light = file.load(Appearance::Light)?;
+/// let light = ThemeFile::nord().load(Appearance::Light)?;
 /// assert_eq!(light.name, "Nord Light");
 /// assert_eq!(light.appearance(), Appearance::Light);
-/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// # Ok::<(), eventful_ratatui::theme::ThemeError>(())
 /// ```
 ///
-/// The files in the crate's `themes/` directory start with
-/// `#![schema("crate:eventful-ratatui@0.1")]`, which lets `crol check` and the
-/// CROL language server check them; copy one to start a theme.
+/// The shipped themes are also files in the crate's `themes/` directory.
+/// They start with `#![schema("crate:eventful-ratatui@0.1")]`, which lets
+/// `crol check` and the CROL language server check them; copy one to start a
+/// theme.
 #[derive(Clone, Debug)]
 pub struct ThemeFile {
     /// Where the source came from, for messages.
@@ -84,7 +91,125 @@ impl ThemeFile {
         }
     }
 
-    /// The name or path it was read from.
+    /// Neutral: grays with a white or black primary, after
+    /// [shadcn/ui](https://ui.shadcn.com), named "Neutral Dark" and "Neutral
+    /// Light". Bundled; see [`bundled`](Self::bundled).
+    ///
+    /// ```
+    /// use eventful_ratatui::theme::{Appearance, ThemeFile};
+    ///
+    /// let theme = ThemeFile::neutral().load(Appearance::Dark)?;
+    /// assert_eq!(theme.name, "Neutral Dark");
+    /// # Ok::<(), eventful_ratatui::theme::ThemeError>(())
+    /// ```
+    pub fn neutral() -> Self {
+        Self::embedded(NEUTRAL)
+    }
+
+    /// [Catppuccin](https://catppuccin.com): "Catppuccin Mocha" when dark,
+    /// "Catppuccin Latte" when light. Bundled; see
+    /// [`bundled`](Self::bundled).
+    ///
+    /// ```
+    /// use eventful_ratatui::{prelude::*, theme::ThemeFile};
+    ///
+    /// let tui = Tui::new().theme_file(ThemeFile::catppuccin());
+    /// ```
+    pub fn catppuccin() -> Self {
+        Self::embedded(CATPPUCCIN)
+    }
+
+    /// [Gruvbox](https://github.com/morhetz/gruvbox): "Gruvbox Dark" and
+    /// "Gruvbox Light". Bundled; see [`bundled`](Self::bundled).
+    ///
+    /// ```
+    /// use eventful_ratatui::theme::{Appearance, ThemeFile};
+    ///
+    /// let theme = ThemeFile::gruvbox().load(Appearance::Light)?;
+    /// assert_eq!(theme.name, "Gruvbox Light");
+    /// # Ok::<(), eventful_ratatui::theme::ThemeError>(())
+    /// ```
+    pub fn gruvbox() -> Self {
+        Self::embedded(GRUVBOX)
+    }
+
+    /// [Nord](https://www.nordtheme.com): "Nord" when dark, "Nord Light"
+    /// when light. Bundled; see [`bundled`](Self::bundled).
+    ///
+    /// ```
+    /// use eventful_ratatui::theme::{Appearance, ThemeFile};
+    ///
+    /// let theme = ThemeFile::nord().load(Appearance::Dark)?;
+    /// assert_eq!(theme.name, "Nord");
+    /// # Ok::<(), eventful_ratatui::theme::ThemeError>(())
+    /// ```
+    pub fn nord() -> Self {
+        Self::embedded(NORD)
+    }
+
+    /// One, after Atom's themes of that name, which Zed and VS Code carry
+    /// on: "One Dark" when dark, "One Light" when light. Bundled; see
+    /// [`bundled`](Self::bundled).
+    ///
+    /// ```
+    /// use eventful_ratatui::{prelude::*, theme::{Appearance, ThemeFile}};
+    ///
+    /// let dark = ThemeFile::one().load(Appearance::Dark)?;
+    /// assert_eq!(dark.name, "One Dark");
+    /// assert_eq!(dark.palette.field, Color::Rgb(0x28, 0x2c, 0x34));
+    /// assert_eq!(ThemeFile::one().load(Appearance::Light)?.name, "One Light");
+    /// # Ok::<(), eventful_ratatui::theme::ThemeError>(())
+    /// ```
+    pub fn one() -> Self {
+        Self::embedded(ONE)
+    }
+
+    /// [Tokyo Night](https://github.com/folke/tokyonight.nvim): "Tokyo
+    /// Night" when dark, "Tokyo Night Day" when light. Bundled; see
+    /// [`bundled`](Self::bundled).
+    ///
+    /// ```
+    /// use eventful_ratatui::theme::{Appearance, ThemeFile};
+    ///
+    /// let theme = ThemeFile::tokyo_night().load(Appearance::Light)?;
+    /// assert_eq!(theme.name, "Tokyo Night Day");
+    /// # Ok::<(), eventful_ratatui::theme::ThemeError>(())
+    /// ```
+    pub fn tokyo_night() -> Self {
+        Self::embedded(TOKYO_NIGHT)
+    }
+
+    /// Every bundled theme, ordered by name: Catppuccin, Gruvbox, Neutral,
+    /// Nord, One and Tokyo Night. For a theme picker; each is the same as
+    /// its own constructor, like [`one`](Self::one).
+    ///
+    /// The themes are part of the library, so no files need to be installed
+    /// with an app. Their [`name`](Self::name)s are their file names in the
+    /// crate's `themes/` directory, like `"one.crod"`.
+    ///
+    /// ```
+    /// use eventful_ratatui::theme::{Appearance, ThemeFile};
+    ///
+    /// let names: Vec<String> = ThemeFile::bundled()
+    ///     .iter()
+    ///     .map(|file| file.load(Appearance::Dark).map(|theme| theme.name))
+    ///     .collect::<Result<_, _>>()?;
+    /// assert_eq!(names[4], "One Dark");
+    /// assert_eq!(names.len(), 6);
+    /// # Ok::<(), eventful_ratatui::theme::ThemeError>(())
+    /// ```
+    pub fn bundled() -> [Self; 6] {
+        BUNDLED.map(Self::embedded)
+    }
+
+    /// A bundled theme from its entry in [`BUNDLED`].
+    fn embedded((name, source): (&str, &str)) -> Self {
+        Self::from_source(name, source)
+    }
+
+    /// The name or path it was read from: a path for [`open`](Self::open),
+    /// the given name for [`from_source`](Self::from_source), and the file
+    /// name, like `"nord.crod"`, for a bundled theme.
     pub fn name(&self) -> &str {
         &self.name
     }
@@ -119,6 +244,26 @@ impl ThemeFile {
         Ok(Theme::new(file.name, palette))
     }
 }
+
+// The bundled themes: the files in `themes/`, as (file name, text). One
+// list, so `bundled` and the tests cover exactly what ships; a test checks
+// that no file in `themes/` is missing from it.
+const CATPPUCCIN: (&str, &str) = (
+    "catppuccin.crod",
+    include_str!("../../themes/catppuccin.crod"),
+);
+const GRUVBOX: (&str, &str) = ("gruvbox.crod", include_str!("../../themes/gruvbox.crod"));
+const NEUTRAL: (&str, &str) = ("neutral.crod", include_str!("../../themes/neutral.crod"));
+const NORD: (&str, &str) = ("nord.crod", include_str!("../../themes/nord.crod"));
+const ONE: (&str, &str) = ("one.crod", include_str!("../../themes/one.crod"));
+const TOKYO_NIGHT: (&str, &str) = (
+    "tokyo-night.crod",
+    include_str!("../../themes/tokyo-night.crod"),
+);
+
+/// Every bundled theme, ordered by name.
+pub(super) const BUNDLED: [(&str, &str); 6] =
+    [CATPPUCCIN, GRUVBOX, NEUTRAL, NORD, ONE, TOKYO_NIGHT];
 
 /// A theme file that could not be loaded. Displays as
 /// `theme <file>: <what went wrong>`, naming the field where it can.
@@ -262,7 +407,7 @@ mod tests {
     #[test]
     fn shipped_files_pass_the_schema() {
         let schema = crol::schema::build::<format::Theme>();
-        for (name, source) in crate::theme::tests::FILES {
+        for (name, source) in BUNDLED {
             for variant in [None, Some("dark"), Some("light")] {
                 let mut composer = CrolComposer::with_cfg(CrolConfig {
                     variants: CrolVariants::new().add_grouped(["dark", "light"]),
@@ -271,7 +416,7 @@ mod tests {
                 .schema(schema.clone())
                 .load_layer(CrolLayer::from_sources(
                     "theme",
-                    [(format!("{name}.crod"), source.to_owned())],
+                    [(name.to_owned(), source.to_owned())],
                 ));
                 if let Some(variant) = variant {
                     composer = composer.with_variant(variant).unwrap();
@@ -282,6 +427,21 @@ mod tests {
                 assert_eq!(messages, Vec::<String>::new(), "{name} {variant:?}");
             }
         }
+    }
+
+    /// Every file in `themes/` is bundled, so a new theme file cannot be
+    /// left out of `bundled` and the tests.
+    #[test]
+    fn every_shipped_file_is_bundled() {
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/themes");
+        let mut files: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|name| name.ends_with(".crod"))
+            .collect();
+        files.sort();
+        let bundled: Vec<&str> = BUNDLED.iter().map(|(name, _)| *name).collect();
+        assert_eq!(files, bundled);
     }
 
     #[test]
