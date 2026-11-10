@@ -2,6 +2,15 @@
 //! `eventful-ratatui` crate, which re-exports them.
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
+#![warn(
+    // Documentation is part of the API: see CLAUDE.md. CI denies warnings.
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::doc_markdown,
+    clippy::too_long_first_doc_paragraph,
+    rustdoc::missing_crate_level_docs,
+    rustdoc::unescaped_backticks
+)]
 
 mod chord;
 

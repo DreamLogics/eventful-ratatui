@@ -57,6 +57,7 @@ pub struct Harness<C: Component + 'static> {
 
 impl<C: Component + 'static> Harness<C> {
     /// Render `root` on a `width` × `height` screen, with mouse routing on.
+    #[expect(clippy::missing_panics_doc, reason = "the test backend cannot fail")]
     pub fn new(root: C, width: u16, height: u16) -> Self {
         let session = Session::start();
         let mut harness = Self {
@@ -174,6 +175,7 @@ impl<C: Component + 'static> Harness<C> {
     }
 
     /// Draw a frame, whether or not one was requested.
+    #[expect(clippy::missing_panics_doc, reason = "the test backend cannot fail")]
     pub fn render(&mut self) -> &mut Self {
         // Focus moves after a frame can ask for another; a few rounds settle
         // it, while a component that invalidates on every render cannot hang

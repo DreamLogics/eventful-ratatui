@@ -63,9 +63,11 @@ impl LogView {
         lines.push_back(line.into());
         let dropped = lines.len().saturating_sub(self.0.max.get());
         lines.drain(..dropped);
-        if self.0.back.get() > 0 {
+        if let Some(last) = lines.back()
+            && self.0.back.get() > 0
+        {
             // Hold the view still: the new line's rows push the bottom down.
-            let added = self.0.rows_of(lines.back().expect("just pushed"));
+            let added = self.0.rows_of(last);
             self.0.back.set(self.0.back.get() + added);
         }
         invalidate::invalidate();

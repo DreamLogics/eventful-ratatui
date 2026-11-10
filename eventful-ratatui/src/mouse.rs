@@ -50,8 +50,9 @@ use crossterm::event::MouseEvent;
 use ratatui_core::layout::{Position, Rect};
 
 /// The area `component` was last drawn into, if it was rendered through a
-/// handle in the last frame. If it was drawn more than once, the topmost
-/// area. Pass the component itself, not its `Rc`; inside `on_input`, `self`.
+/// handle in the last frame.
+///
+/// If it was drawn more than once, the topmost area. Pass the component itself, not its `Rc`; inside `on_input`, `self`.
 pub fn area_of<C: ?Sized>(component: &C) -> Option<Rect> {
     let addr = addr_of(component);
     tree::with_last(|nodes| tree::find(nodes, addr).map(|index| nodes[index].area))
@@ -64,7 +65,9 @@ pub fn is_hit<C: ?Sized>(component: &C, event: &MouseEvent) -> bool {
 }
 
 /// Whether the pointer is over `component`, or over a component it
-/// rendered, in the last frame. Overlays above it and modal overlays hide it
+/// rendered, in the last frame.
+///
+/// Overlays above it and modal overlays hide it
 /// from the pointer. Pass the component itself; inside `render`, `self`.
 ///
 /// Hover changes redraw by themselves, so components can draw a hover state

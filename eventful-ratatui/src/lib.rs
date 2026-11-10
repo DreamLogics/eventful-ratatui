@@ -23,6 +23,15 @@
 //! version, or types like `ShardRc` from the two copies won't match.
 #![forbid(unsafe_code)]
 #![deny(missing_docs, missing_debug_implementations)]
+#![warn(
+    // Documentation is part of the API: see CLAUDE.md. CI denies warnings.
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::doc_markdown,
+    clippy::too_long_first_doc_paragraph,
+    rustdoc::missing_crate_level_docs,
+    rustdoc::unescaped_backticks
+)]
 
 // `#[key_events]` refers to this crate as `::eventful_ratatui`, also inside it.
 extern crate self as eventful_ratatui;
