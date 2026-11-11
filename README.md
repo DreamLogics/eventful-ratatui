@@ -100,18 +100,25 @@ wells are shades between background and foreground, and accents come from the
 ANSI colors, adjusted where they would be hard to read. When the terminal does
 not answer (and on Windows), a common dark palette is used.
 
-Other themes are CROL data files. This crate ships Neutral, Catppuccin,
-Gruvbox, Nord and Tokyo Night in its `themes/` directory; the loop loads the
-variant that matches the terminal's background:
+Other themes are CROL data files. Six are bundled: Catppuccin, Gruvbox,
+Neutral, Nord, One (One Dark and One Light) and Tokyo Night. The loop loads
+the variant that matches the terminal's background:
 
 ```rust,no_run
 use eventful_ratatui::{prelude::*, theme::ThemeFile};
 
-# fn main() -> std::io::Result<()> {
-let tui = Tui::new().theme_file(ThemeFile::open("themes/catppuccin.crod")?);
-# Ok(())
-# }
+fn main() -> std::io::Result<()> {
+    // A bundled theme; `ThemeFile::bundled()` lists them all.
+    let tui = Tui::new().theme_file(ThemeFile::one());
+    // Or a theme file of your own:
+    let tui = Tui::new().theme_file(ThemeFile::open("my-theme.crod")?);
+    Ok(())
+}
 ```
+
+The bundled themes are also files in
+[`eventful-ratatui/themes/`](eventful-ratatui/themes); copy one to start
+your own.
 
 A theme file names the schema published with this crate, so `crol check` and
 the CROL language server check it while you edit:
@@ -145,7 +152,7 @@ The look of the components follows [ratcn](https://github.com/kristoferlund/ratc
 by Kristofer Lund: fills instead of borders, input wells that lift on focus and
 hover, and a palette of purpose-named colors. Several themes take their colors
 and tuning from ratcn's. The color schemes are by their authors: shadcn/ui,
-Catppuccin, Gruvbox, Nord and Tokyo Night. See
+Catppuccin, Gruvbox, Nord, Atom's One (GitHub) and Tokyo Night. See
 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for their licenses.
 
 ## License

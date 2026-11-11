@@ -51,5 +51,8 @@ The theme files use the colors of these schemes, credited in each file:
   dark and light.
 - [Nord](https://github.com/nordtheme/nord) (MIT, Copyright (c) 2016-present
   Sven Greb).
+- [One Dark and One Light](https://github.com/atom/atom/tree/master/packages)
+  (MIT, Copyright (c) 2016 GitHub Inc.): Atom's syntax and UI themes, behind
+  the One theme.
 - [Tokyo Night](https://github.com/folke/tokyonight.nvim) (Apache-2.0, by
   Folke Lemaitre): Night and Day.

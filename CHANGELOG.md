@@ -8,6 +8,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Bundled themes**: the shipped themes are part of the library, so apps
+  no longer need the `themes/` directory on disk: `ThemeFile::neutral`,
+  `catppuccin`, `gruvbox`, `nord`, `one` and `tokyo_night`, and
+  `ThemeFile::bundled` for all of them.
+- **One theme**: One Dark and One Light, after Atom's themes that Zed and
+  VS Code carry on, as `themes/one.crod` and `ThemeFile::one`.
 - `THIRD-PARTY-NOTICES.md`, crediting [ratcn](https://github.com/kristoferlund/ratcn),
   whose visual design the components follow and whose theme colors and tuning
   several themes use, and the color schemes the themes are built on. The

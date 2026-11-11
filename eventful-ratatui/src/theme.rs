@@ -24,8 +24,10 @@
 //!
 //! Other themes are [CROL](https://crates.io/crates/crol) data files
 //! (`.crod`) with a `<dark>` and a `<light>` variant; the loop loads the one
-//! that matches the terminal's background. This crate ships a few in its
-//! `themes/` directory: Neutral, Catppuccin, Gruvbox, Nord and Tokyo Night.
+//! that matches the terminal's background. This crate ships a few, bundled
+//! as [`ThemeFile`] constructors and kept as files in its `themes/`
+//! directory: Catppuccin, Gruvbox, Neutral, Nord, One and Tokyo Night
+//! ([`ThemeFile::bundled`] lists them).
 //!
 //! ```text
 //! name: "Mine"
@@ -45,10 +47,11 @@
 //! ```no_run
 //! use eventful_ratatui::{prelude::*, theme::ThemeFile};
 //!
-//! # fn main() -> std::io::Result<()> {
-//! let tui = Tui::new().theme_file(ThemeFile::open("themes/catppuccin.crod")?);
-//! # Ok(())
-//! # }
+//! // A bundled theme:
+//! let tui = Tui::new().theme_file(ThemeFile::one());
+//! // Or your own file:
+//! let tui = Tui::new().theme_file(ThemeFile::open("my-theme.crod")?);
+//! # Ok::<(), std::io::Error>(())
 //! ```
 //!
 //! [`Tui::theme`](crate::Tui::theme) sets a fixed [`Theme`] instead.
@@ -744,21 +747,12 @@ pub fn set(theme: Theme) {
 mod tests {
     use super::{color::contrast, *};
 
-    /// The theme files this crate ships, by name.
-    pub(crate) const FILES: [(&str, &str); 5] = [
-        ("neutral", include_str!("../themes/neutral.crod")),
-        ("catppuccin", include_str!("../themes/catppuccin.crod")),
-        ("gruvbox", include_str!("../themes/gruvbox.crod")),
-        ("nord", include_str!("../themes/nord.crod")),
-        ("tokyo-night", include_str!("../themes/tokyo-night.crod")),
-    ];
-
     /// Every variant of every shipped file.
     fn file_themes() -> Vec<(Appearance, Theme)> {
-        FILES
-            .iter()
-            .flat_map(|(name, source)| {
-                let file = ThemeFile::from_source(*name, *source);
+        ThemeFile::bundled()
+            .into_iter()
+            .flat_map(|file| {
+                let name = file.name().to_owned();
                 [Appearance::Dark, Appearance::Light].map(|appearance| {
                     let theme = file
                         .load(appearance)

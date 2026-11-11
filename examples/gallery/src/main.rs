@@ -6,7 +6,7 @@
 use eventful_ratatui::prelude::*;
 use eventful_ratatui::theme::{Theme, ThemeFile};
 use eventful_rs::*;
-use std::{cell::RefCell, future::Future, path::PathBuf};
+use std::{cell::RefCell, future::Future};
 
 declare_shard!(Ui, runtime = main);
 
@@ -24,11 +24,11 @@ struct Gallery {
     overlay_buttons: [Button; 6],
     menu_bar: MenuBar,
     editor: TextArea,
-    /// Picks the theme: the built-in one, then each theme file.
+    /// Picks the theme: the terminal's built-in one, then each bundled theme file.
     theme_picker: Select,
     /// The theme files, in the order the picker lists them after the
     /// built-in theme.
-    theme_files: Vec<PathBuf>,
+    theme_files: [ThemeFile; 6],
     /// The theme the loop started with, once something else was picked.
     start_theme: RefCell<Option<Theme>>,
     keys: Keymap<Gallery>,
@@ -303,7 +303,7 @@ impl Gallery {
             .hint("ctrl+pgup/pgdn", "pages")
             .hint("ctrl+p", "commands")
             .hint("ctrl+c", "quit");
-        let theme_files = theme_files();
+        let theme_files = ThemeFile::bundled();
         Self {
             tabs,
             hints,
@@ -318,7 +318,8 @@ impl Gallery {
             menu_bar,
             editor,
             theme_picker: Select::new(
-                std::iter::once("Terminal".to_owned()).chain(theme_files.iter().map(|p| label(p))),
+                std::iter::once("Terminal".to_owned())
+                    .chain(theme_files.iter().map(|f| label(f.name()))),
             )
             .with_selection(0),
             theme_files,
@@ -422,9 +423,7 @@ impl Gallery {
             .clone();
         let theme = match index.checked_sub(1).map(|i| &self.theme_files[i]) {
             None => Ok(start),
-            Some(path) => ThemeFile::open(path)
-                .map_err(|err| format!("{}: {err}", path.display()))
-                .and_then(|file| file.load(start.appearance()).map_err(|err| err.to_string())),
+            Some(file) => file.load(start.appearance()).map_err(|err| err.to_string()),
         };
         match theme {
             Ok(theme) => {
@@ -446,23 +445,9 @@ impl Gallery {
     }
 }
 
-/// The theme files shipped with the crate, sorted.
-fn theme_files() -> Vec<PathBuf> {
-    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../eventful-ratatui/themes");
-    let mut paths: Vec<_> = std::fs::read_dir(dir)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().is_some_and(|e| e == "crod"))
-        .collect();
-    paths.sort();
-    paths
-}
-
 /// A theme file's name for the picker: `tokyo-night.crod` is "Tokyo Night".
-fn label(path: &std::path::Path) -> String {
-    let stem = path.file_stem().unwrap_or_default().to_string_lossy();
+fn label(file_name: &str) -> String {
+    let stem = file_name.trim_end_matches(".crod");
     stem.split('-')
         .map(|word| {
             let mut chars = word.chars();
